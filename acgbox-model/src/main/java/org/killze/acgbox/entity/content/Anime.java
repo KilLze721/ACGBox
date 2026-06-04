@@ -27,7 +27,7 @@ public class Anime {
      * 动画 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 动画名称。
@@ -38,19 +38,19 @@ public class Anime {
      * 动画总集数。
      */
     @TableField("episode_count")
-    private Integer episodeCount;
+    private Long episodeCount;
 
     /**
      * 放送类型 ID，关联 broadcast_type 表。
      */
     @TableField("broadcast_type_id")
-    private Integer broadcastTypeId;
+    private Long broadcastTypeId;
 
     /**
      * 改编类型 ID，关联 adaptation_type 表。
      */
     @TableField("adaptation_type_id")
-    private Integer adaptationTypeId;
+    private Long adaptationTypeId;
 
     /**
      * 动画开播日期。

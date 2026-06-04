@@ -22,7 +22,7 @@ public class AdaptationType {
      * 改编类型 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 改编类型名称，例如原创、漫画改、小说改、游戏改。

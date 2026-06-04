@@ -23,13 +23,13 @@ public class ExternalLink {
      * 链接 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 动画 ID，关联 anime 表。
      */
     @TableField("anime_id")
-    private Integer animeId;
+    private Long animeId;
 
     /**
      * 链接标题，例如官网、Bangumi、维基百科。

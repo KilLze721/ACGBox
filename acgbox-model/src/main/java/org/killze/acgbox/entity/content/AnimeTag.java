@@ -21,11 +21,11 @@ public class AnimeTag {
      * 动画 ID，关联 anime 表，也是联合主键的一部分。
      */
     @TableField("anime_id")
-    private Integer animeId;
+    private Long animeId;
 
     /**
      * 标签 ID，关联 tag 表，也是联合主键的一部分。
      */
     @TableField("tag_id")
-    private Integer tagId;
+    private Long tagId;
 }

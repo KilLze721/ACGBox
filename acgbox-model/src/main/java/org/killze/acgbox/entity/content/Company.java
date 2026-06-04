@@ -22,7 +22,7 @@ public class Company {
      * 公司 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 公司名称。

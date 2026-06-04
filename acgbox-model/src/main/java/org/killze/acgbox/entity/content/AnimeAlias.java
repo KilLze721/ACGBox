@@ -23,13 +23,13 @@ public class AnimeAlias {
      * 别名 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 动画 ID，关联 anime 表。
      */
     @TableField("anime_id")
-    private Integer animeId;
+    private Long animeId;
 
     /**
      * 动画别名名称。

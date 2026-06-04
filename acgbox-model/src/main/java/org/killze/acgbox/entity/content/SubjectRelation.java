@@ -23,7 +23,7 @@ public class SubjectRelation {
      * 关联 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 源作品类型，例如 anime、manga、novel。
@@ -35,7 +35,7 @@ public class SubjectRelation {
      * 源作品 ID。
      */
     @TableField("source_id")
-    private Integer sourceId;
+    private Long sourceId;
 
     /**
      * 目标作品类型，例如 anime、manga、novel。
@@ -47,7 +47,7 @@ public class SubjectRelation {
      * 目标作品 ID。
      */
     @TableField("target_id")
-    private Integer targetId;
+    private Long targetId;
 
     /**
      * 关联类型，例如前传、续作、改编自。

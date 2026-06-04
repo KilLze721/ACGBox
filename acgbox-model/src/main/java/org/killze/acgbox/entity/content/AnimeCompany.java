@@ -21,13 +21,13 @@ public class AnimeCompany {
      * 动画 ID，关联 anime 表，也是联合主键的一部分。
      */
     @TableField("anime_id")
-    private Integer animeId;
+    private Long animeId;
 
     /**
      * 公司 ID，关联 company 表，也是联合主键的一部分。
      */
     @TableField("company_id")
-    private Integer companyId;
+    private Long companyId;
 
     /**
      * 公司在动画中的职责，例如制作、发行、企划。

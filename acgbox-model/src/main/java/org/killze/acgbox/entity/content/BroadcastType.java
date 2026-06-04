@@ -22,7 +22,7 @@ public class BroadcastType {
      * 放送类型 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 放送类型名称，例如 TV、WEB、OVA、剧场版。
