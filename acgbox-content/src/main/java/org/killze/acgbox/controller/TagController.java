@@ -3,8 +3,10 @@ package org.killze.acgbox.controller;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.killze.acgbox.dto.content.TagDTO;
+import org.killze.acgbox.dto.content.TagPageDTO;
 import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.TagService;
+import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.TagVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -53,4 +55,24 @@ public class TagController {
         tagService.deleteTags(ids);
         return Result.success();
     }
+
+    /**
+     * 根据id获取标签
+     */
+    @GetMapping("/{id}")
+    public Result<TagVO> getTagById(@PathVariable Integer id) {
+        log.info("根据id获取标签：{}", id);
+        return Result.success(tagService.getTagById(id));
+    }
+
+    /**
+     * 分页查询获取标签
+     */
+    @GetMapping("/page")
+    public Result<PageVO<TagVO>> pageTag(TagPageDTO pageDTO) {
+        log.info("分页查询获取标签：{}", pageDTO);
+        return Result.success(tagService.pageTag(pageDTO)
+        );
+    }
+
 }

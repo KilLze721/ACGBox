@@ -1,16 +1,30 @@
+# 服务器配置
 server:
+  # 服务端口号
   port: 8080
+
+# Spring框架配置
 spring:
+  # 数据源配置
   datasource:
     url: jdbc:postgresql://localhost:5432/acgbox
     username: postgres
     password: 123456
     driver-class-name: org.postgresql.Driver
+
+# MyBatis-Plus ORM框架配置
 mybatis-plus:
+  # MyBatis配置项
   configuration:
+    # 开启下划线转驼峰命名映射
     map-underscore-to-camel-case: true
+    # 配置SQL日志输出实现，使用标准输出打印SQL语句
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  # 全局策略配置
   global-config:
+    # 数据库相关配置
     db-config:
+      # 主键ID生成策略为数据库自增
       id-type: auto
+      # WHERE条件字段更新策略：只更新非空字段
       where-strategy: not_empty

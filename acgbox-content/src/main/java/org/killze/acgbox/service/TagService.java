@@ -2,7 +2,9 @@ package org.killze.acgbox.service;
 
 import jakarta.validation.Valid;
 import org.killze.acgbox.dto.content.TagDTO;
+import org.killze.acgbox.dto.content.TagPageDTO;
 import org.killze.acgbox.result.Result;
+import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.TagVO;
 
 import java.util.List;
@@ -37,4 +39,20 @@ public interface TagService {
      * @param ids 标签ID列表
      */
     void deleteTags(List<Integer> ids);
+
+    /**
+     * 根据ID查询标签
+     *
+     * @param id 标签ID
+     * @return 标签信息
+     */
+    TagVO getTagById(Integer id);
+
+    /**
+     * 分页查询标签
+     *
+     * @param pageDTO 分页参数
+     * @return 标签列表
+     */
+    PageVO<TagVO> pageTag(TagPageDTO pageDTO);
 }
