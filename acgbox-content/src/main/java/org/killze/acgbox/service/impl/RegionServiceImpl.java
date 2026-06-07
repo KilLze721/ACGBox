@@ -99,6 +99,7 @@ public class RegionServiceImpl implements RegionService {
             throw new BusinessException("请选择要删除的地区");
         }
         // TODO 判断地区是否被作品引用
+
         // 删除地区
         regionMapper.deleteByIds(ids);
     }
@@ -114,7 +115,7 @@ public class RegionServiceImpl implements RegionService {
         // 判断地区是否存在
         Region region = regionMapper.selectById(id);
         if (region == null) {
-            throw new BusinessException("地区不存在");
+            throw new BusinessException("此地区不存在");
         }
         // 返回地区信息
         return RegionVO.builder()

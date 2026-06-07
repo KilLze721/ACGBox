@@ -71,9 +71,9 @@ public class Anime {
     private String coverImageUrl;
 
     /**
-     * 放送状态，例如放送中、已完结。
+     * 放送状态，1: 未放送 2: 放送中 3: 已完结 4: 其他
      */
-    private String status;
+    private Long status;
 
     /**
      * 记录创建时间。

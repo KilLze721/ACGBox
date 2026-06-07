@@ -24,47 +24,49 @@ public class AdaptationTypeController {
     @Autowired
     private AdaptationTypeService adaptationTypeService;
 
+    /**
+     * 创建改编类型
+     */
     @PostMapping("/create")
-    public Result<AdaptationTypeVO> create(
-            @Valid @RequestBody AdaptationTypeDTO dto) {
-
-        return Result.success(
-                adaptationTypeService.createAdaptationType(dto)
-        );
+    public Result<AdaptationTypeVO> create(@Valid @RequestBody AdaptationTypeDTO dto) {
+        log.info("创建改编类型：{}", dto);
+        return Result.success(adaptationTypeService.createAdaptationType(dto));
     }
 
+    /**
+     * 修改改编类型
+     */
     @PostMapping("/update")
-    public Result<AdaptationTypeVO> update(
-            @Valid @RequestBody AdaptationTypeDTO dto) {
-
-        return Result.success(
-                adaptationTypeService.updateAdaptationType(dto)
-        );
+    public Result<AdaptationTypeVO> update(@Valid @RequestBody AdaptationTypeDTO dto) {
+        log.info("修改改编类型：{}", dto);
+        return Result.success(adaptationTypeService.updateAdaptationType(dto));
     }
 
+    /**
+     * 批量删除改编类型
+     */
     @PostMapping("/delete")
-    public Result<Void> delete(
-            @RequestBody List<Integer> ids) {
-
+    public Result<Void> delete(@RequestBody List<Integer> ids) {
+        log.info("删除改编类型：{}", ids);
         adaptationTypeService.deleteAdaptationTypes(ids);
-
         return Result.success();
     }
 
+    /**
+     * 根据id获取改编类型
+     */
     @GetMapping("/{id}")
-    public Result<AdaptationTypeVO> getById(
-            @PathVariable Integer id) {
-
-        return Result.success(
-                adaptationTypeService.getAdaptationTypeById(id)
-        );
+    public Result<AdaptationTypeVO> getById(@PathVariable Integer id) {
+        log.info("根据id获取改编类型：{}", id);
+        return Result.success(adaptationTypeService.getAdaptationTypeById(id));
     }
 
+    /**
+     * 获取全部改编类型
+     */
     @GetMapping("/list")
     public Result<List<AdaptationTypeVO>> list() {
-
-        return Result.success(
-                adaptationTypeService.listAdaptationTypes()
-        );
+        log.info("获取全部改编类型");
+        return Result.success(adaptationTypeService.listAdaptationTypes());
     }
 }

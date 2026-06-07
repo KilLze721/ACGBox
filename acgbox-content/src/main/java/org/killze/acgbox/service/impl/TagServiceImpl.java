@@ -42,7 +42,7 @@ public class TagServiceImpl implements TagService {
                         .eq(Tag::getName, tagDTO.getName())
         );
         if (exist != null){
-            throw new BusinessException("标签已存在");
+            throw new BusinessException("此标签已存在");
         }
         // 创建标签
         Tag tag = Tag.builder()
@@ -69,7 +69,7 @@ public class TagServiceImpl implements TagService {
         // 判断标签是否存在
         Tag tag = tagMapper.selectById(tagDTO.getId());
         if (tag == null){
-            throw new BusinessException("标签不存在");
+            throw new BusinessException("此标签不存在");
         }
         // 判断新名称是否被其他标签使用
         Tag exist = tagMapper.selectOne(
@@ -78,7 +78,7 @@ public class TagServiceImpl implements TagService {
                         .ne(Tag::getId, tagDTO.getId())
         );
         if (exist != null) {
-            throw new BusinessException("标签已存在");
+            throw new BusinessException("此标签已存在");
         }
         // 修改标签
         tag.setName(tagDTO.getName());
@@ -103,6 +103,7 @@ public class TagServiceImpl implements TagService {
             throw new BusinessException("请选择要删除的标签");
         }
         // TODO 判断标签是否被作品引用
+
         // 删除标签
         tagMapper.deleteByIds(ids);
     }
@@ -118,7 +119,7 @@ public class TagServiceImpl implements TagService {
         // 判断标签是否存在
         Tag tag = tagMapper.selectById(id);
         if (tag == null) {
-            throw new BusinessException("标签不存在");
+            throw new BusinessException("此标签不存在");
         }
         // 返回标签信息
         return TagVO.builder()
