@@ -154,8 +154,6 @@ public class TagServiceImpl implements TagService {
                 .id(tag.getId())
                 .name(tag.getName())
                 .build()).toList();
-        System.out.println("123123123123123123-=-=-=-=-=-=-=-");
-        System.out.println(result.getTotal());
         // 返回结果
         return PageVO.<TagVO>builder()
                 .total(result.getTotal())

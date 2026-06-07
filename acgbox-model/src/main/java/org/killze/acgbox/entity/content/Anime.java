@@ -53,6 +53,12 @@ public class Anime {
     private Long adaptationTypeId;
 
     /**
+     * 地区 ID，关联 region 表。
+     */
+    @TableField("region_id")
+    private Long regionId;
+
+    /**
      * 动画开播日期。
      */
     @TableField("air_date")

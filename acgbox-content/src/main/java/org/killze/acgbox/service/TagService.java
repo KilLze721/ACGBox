@@ -23,7 +23,7 @@ public interface TagService {
      * @param tagDTO 标签信息
      * @return 标签信息
      */
-    TagVO createTag(TagDTO tagDTO);
+    TagVO createTag(@Valid TagDTO tagDTO);
 
     /**
      * 修改标签
@@ -31,7 +31,7 @@ public interface TagService {
      * @param tagDTO 标签信息
      * @return 标签信息
      */
-    TagVO updateTag(TagDTO tagDTO);
+    TagVO updateTag(@Valid  TagDTO tagDTO);
 
     /**
      * 删除标签
