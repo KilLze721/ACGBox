@@ -14,9 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * <p>
  * 地区服务实现类。
- * </p>
  *
  * @author killze
  */
@@ -40,7 +38,7 @@ public class RegionServiceImpl implements RegionService {
                         .eq(Region::getName, regionDTO.getName())
         );
         if (exist != null) {
-            throw new BusinessException("地区已存在");
+            throw new BusinessException("此地区已存在");
         }
         // 创建地区
         Region region = Region.builder()
@@ -67,7 +65,7 @@ public class RegionServiceImpl implements RegionService {
         // 判断地区是否存在
         Region region = regionMapper.selectById(regionDTO.getId());
         if (region == null) {
-            throw new BusinessException("地区不存在");
+            throw new BusinessException("此地区不存在");
         }
         // 判断新名称是否被其他地区使用
         Region exist = regionMapper.selectOne(
@@ -76,7 +74,7 @@ public class RegionServiceImpl implements RegionService {
                         .ne(Region::getId, regionDTO.getId())
         );
         if (exist != null) {
-            throw new BusinessException("地区已存在");
+            throw new BusinessException("此地区已存在");
         }
         // 修改地区
         region.setName(regionDTO.getName());

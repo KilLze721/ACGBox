@@ -6,6 +6,11 @@ import org.killze.acgbox.vo.content.RegionVO;
 
 import java.util.List;
 
+/**
+ * 地区服务接口
+ *
+ * @author killze
+ */
 public interface RegionService {
     
     /**

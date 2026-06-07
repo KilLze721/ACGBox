@@ -10,13 +10,12 @@ import org.killze.acgbox.vo.content.TagVO;
 import java.util.List;
 
 /**
- * <p>
  * 标签服务接口。
- * </p>
  *
  * @author killze
  */
 public interface TagService {
+
     /**
      * 创建标签
      *

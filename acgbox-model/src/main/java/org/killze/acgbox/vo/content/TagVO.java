@@ -10,7 +10,13 @@ import lombok.Data;
 @Builder
 public class TagVO {
 
+    /**
+     * 标签id
+     */
     private Integer id;
 
+    /**
+     * 标签名称
+     */
     private String name;
 }

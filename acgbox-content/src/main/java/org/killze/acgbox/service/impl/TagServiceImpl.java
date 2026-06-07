@@ -7,7 +7,6 @@ import org.killze.acgbox.dto.content.TagPageDTO;
 import org.killze.acgbox.entity.content.Tag;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.TagMapper;
-import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.TagService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.TagVO;
@@ -19,9 +18,8 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * <p>
  * 标签服务实现类。
- * </p>
+ *
  * @author killze
  */
 @Service

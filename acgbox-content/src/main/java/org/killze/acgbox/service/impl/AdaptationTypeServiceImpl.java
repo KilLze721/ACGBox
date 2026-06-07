@@ -1,0 +1,147 @@
+package org.killze.acgbox.service.impl;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.killze.acgbox.dto.content.AdaptationTypeDTO;
+import org.killze.acgbox.entity.content.AdaptationType;
+import org.killze.acgbox.exception.BusinessException;
+import org.killze.acgbox.mapper.AdaptationTypeMapper;
+import org.killze.acgbox.service.AdaptationTypeService;
+import org.killze.acgbox.vo.content.AdaptationTypeVO;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * 改编类型服务实现类。
+ *
+ * @author killze
+ */
+@Service
+public class AdaptationTypeServiceImpl implements AdaptationTypeService {
+    
+    @Autowired
+    private AdaptationTypeMapper adaptationTypeMapper;
+
+
+    /**
+     * 创建改编类型
+     *
+     * @param dto 改编类型信息
+     * @return 改编类型信息
+     */
+    @Override
+    public AdaptationTypeVO createAdaptationType(AdaptationTypeDTO dto) {
+        // 判断此改编类型是否存在
+        AdaptationType exist = adaptationTypeMapper.selectOne(
+                new LambdaQueryWrapper<AdaptationType>()
+                        .eq(AdaptationType::getName, dto.getName())
+        );
+        if (exist != null) {
+            throw new BusinessException("此改编类型已存在");
+        }
+        // 创建地区
+        AdaptationType adaptationType = AdaptationType.builder()
+                .name(dto.getName())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
+        adaptationTypeMapper.insert(adaptationType);
+        // 返回地区信息
+        return AdaptationTypeVO.builder()
+                .id(adaptationType.getId())
+                .name(adaptationType.getName())
+                .build();
+    }
+
+    /**
+     * 修改改编类型
+     *
+     * @param dto 改编类型信息
+     * @return 改编类型信息
+     */
+    @Override
+    public AdaptationTypeVO updateAdaptationType(AdaptationTypeDTO dto) {
+        // 判断地区是否存在
+        AdaptationType adaptationType = adaptationTypeMapper.selectById(dto.getId());
+        if (adaptationType == null) {
+            throw new BusinessException("此改编类型不存在");
+        }
+        // 判断新名称是否被其他地区使用
+        AdaptationType exist = adaptationTypeMapper.selectOne(
+                new LambdaQueryWrapper<AdaptationType>()
+                        .eq(AdaptationType::getName, dto.getName())
+                        .ne(AdaptationType::getId, dto.getId())
+        );
+        if (exist != null) {
+            throw new BusinessException("此改编类型已存在");
+        }
+        // 修改地区
+        adaptationType.setName(dto.getName());
+        adaptationType.setUpdatedAt(LocalDateTime.now());
+        adaptationTypeMapper.updateById(adaptationType);
+        // 返回地区信息
+        return AdaptationTypeVO.builder()
+                .id(adaptationType.getId())
+                .name(adaptationType.getName())
+                .build();
+    }
+
+    /**
+     * 批量删除地区
+     *
+     * @param ids 地区ID列表
+     */
+    @Override
+    public void deleteAdaptationTypes(List<Integer> ids) {
+        // 判断ids是否为空
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的改编类型");
+        }
+        // TODO 判断地区是否被作品引用
+        // 删除地区
+        adaptationTypeMapper.deleteByIds(ids);
+    }
+
+    /**
+     * 根据id获取地区
+     *
+     * @param id 地区id
+     * @return 地区信息
+     */
+    @Override
+    public AdaptationTypeVO getAdaptationTypeById(Integer id) {
+        // 判断地区是否存在
+        AdaptationType adaptationType = adaptationTypeMapper.selectById(id);
+        if (adaptationType == null) {
+            throw new BusinessException("此改编类型不存在");
+        }
+        // 返回地区信息
+        return AdaptationTypeVO.builder()
+                .id(adaptationType.getId())
+                .name(adaptationType.getName())
+                .build();
+    }
+
+    /**
+     * 获取所有地区
+     *
+     * @return 地区列表
+     */
+    @Override
+    public List<AdaptationTypeVO> listAdaptationTypes() {
+        // 查询所有地区
+        List<AdaptationType> adaptationTypes = adaptationTypeMapper.selectList(
+                new LambdaQueryWrapper<AdaptationType>()
+                        .orderByAsc(AdaptationType::getName)
+        );
+        // 返回地区列表
+        return adaptationTypes.stream()
+                .map(adaptationType -> AdaptationTypeVO.builder()
+                        .id(adaptationType.getId())
+                        .name(adaptationType.getName())
+                        .build())
+                .toList();
+    }
+}

@@ -15,9 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * <p>
  * 标签服务控制器。
- * </p>
  *
  * @author killze
  */
@@ -25,6 +23,7 @@ import java.util.List;
 @RequestMapping("/tags")
 @Slf4j
 public class TagController {
+
     @Autowired
     private TagService tagService;
 

@@ -4,19 +4,19 @@ import lombok.Builder;
 import lombok.Data;
 
 /**
- * 地区视图对象。
+ * 改编类型视图对象
  */
 @Data
 @Builder
-public class RegionVO  {
+public class AdaptationTypeVO {
 
     /**
-     * 地区 ID。
+     * 改编类型 ID。
      */
     private Long id;
 
     /**
-     * 地区名称，例如中国、日本、美国。
+     * 改编类型名称，例如原创、漫画改、小说改、游戏改。
      */
     private String name;
 }

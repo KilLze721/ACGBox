@@ -9,9 +9,13 @@ import org.killze.acgbox.vo.content.RegionVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-import java.sql.ClientInfoStatus;
 import java.util.List;
 
+/**
+ * 地区控制器
+ *
+ * @author killze
+ */
 @RestController
 @RequestMapping("/region")
 @Slf4j
