@@ -1,6 +1,5 @@
 package org.killze.acgbox.dto.content;
 
-
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -11,9 +10,9 @@ import lombok.Data;
 public class TagDTO {
 
     /**
-     * 标签id
+     * 标签 ID
      */
-    private Integer id;
+    private Long id;
 
     /**
      * 标签名称

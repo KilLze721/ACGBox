@@ -19,7 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/region")
 @Slf4j
-public class                      RegionController {
+public class RegionController {
 
     @Autowired
     private RegionService regionService;
@@ -29,7 +29,7 @@ public class                      RegionController {
      */
     @PostMapping("/create")
     public Result<RegionVO> createRegion(@Valid @RequestBody RegionDTO regionDTO) {
-        log.info("创建标签：{}", regionDTO);
+        log.info("创建地区：{}", regionDTO);
         return Result.success(regionService.createRegion(regionDTO));
     }
 
@@ -38,7 +38,7 @@ public class                      RegionController {
      */
     @PostMapping("/update")
     public Result<RegionVO> updateRegion(@Valid @RequestBody RegionDTO regionDTO) {
-        log.info("修改标签：{}", regionDTO);
+        log.info("修改地区：{}", regionDTO);
         return Result.success(regionService.updateRegion(regionDTO));
     }
 
@@ -46,18 +46,18 @@ public class                      RegionController {
      * 批量删除地区
      */
     @PostMapping("/delete")
-    public Result<Void> deleteRegion(@RequestBody List<Integer> ids) {
-        log.info("删除标签：{}", ids);
+    public Result<Void> deleteRegion(@RequestBody List<Long> ids) {
+        log.info("删除地区：{}", ids);
         regionService.deleteRegions(ids);
         return Result.success();
     }
 
     /**
-     * 根据id获取地区
+     * 根据 ID 获取地区
      */
     @GetMapping("/{id}")
-    public Result<RegionVO> getRegionById(@PathVariable Integer id) {
-        log.info("根据id获取标签：{}", id);
+    public Result<RegionVO> getRegionById(@PathVariable Long id) {
+        log.info("根据 ID 获取地区：{}", id);
         return Result.success(regionService.getRegionById(id));
     }
 

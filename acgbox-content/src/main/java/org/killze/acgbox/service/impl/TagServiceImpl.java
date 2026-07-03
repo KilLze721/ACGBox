@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 标签服务实现类。
+ * 标签服务实现类
  *
  * @author killze
  */
@@ -32,7 +32,7 @@ public class TagServiceImpl implements TagService {
      * 创建标签
      *
      * @param tagDTO 标签信息
-     * @return 创建成功的标签信息
+     * @return 标签信息
      */
     @Override
     public TagVO createTag(TagDTO tagDTO) {
@@ -41,7 +41,7 @@ public class TagServiceImpl implements TagService {
                 new LambdaQueryWrapper<Tag>()
                         .eq(Tag::getName, tagDTO.getName())
         );
-        if (exist != null){
+        if (exist != null) {
             throw new BusinessException("此标签已存在");
         }
         // 创建标签
@@ -62,13 +62,13 @@ public class TagServiceImpl implements TagService {
      * 修改标签
      *
      * @param tagDTO 标签信息
-     * @return 更新的标签信息
+     * @return 标签信息
      */
     @Override
     public TagVO updateTag(TagDTO tagDTO) {
         // 判断标签是否存在
         Tag tag = tagMapper.selectById(tagDTO.getId());
-        if (tag == null){
+        if (tag == null) {
             throw new BusinessException("此标签不存在");
         }
         // 判断新名称是否被其他标签使用
@@ -94,11 +94,11 @@ public class TagServiceImpl implements TagService {
     /**
      * 批量删除标签
      *
-     * @param ids 标签ID列表
+     * @param ids 标签 ID 列表
      */
     @Override
-    public void deleteTags(List<Integer> ids) {
-        // 判断ids是否为空
+    public void deleteTags(List<Long> ids) {
+        // 判断 ids 是否为空
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的标签");
         }
@@ -109,13 +109,13 @@ public class TagServiceImpl implements TagService {
     }
 
     /**
-     * 根据ID获取标签信息
+     * 根据 ID 获取标签
      *
-     * @param id 标签ID
+     * @param id 标签 ID
      * @return 标签信息
      */
     @Override
-    public TagVO getTagById(Integer id) {
+    public TagVO getTagById(Long id) {
         // 判断标签是否存在
         Tag tag = tagMapper.selectById(id);
         if (tag == null) {
@@ -148,7 +148,7 @@ public class TagServiceImpl implements TagService {
         );
         // 分页查询
         Page<Tag> result = tagMapper.selectPage(page, wrapper);
-        // 转换成VO
+        // 封装结果
         List<TagVO> rows = result.getRecords().stream().map(tag -> TagVO.builder()
                 .id(tag.getId())
                 .name(tag.getName())
@@ -159,6 +159,4 @@ public class TagServiceImpl implements TagService {
                 .rows(rows)
                 .build();
     }
-
-
 }

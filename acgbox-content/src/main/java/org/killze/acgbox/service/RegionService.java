@@ -12,12 +12,12 @@ import java.util.List;
  * @author killze
  */
 public interface RegionService {
-    
+
     /**
      * 创建地区
      *
      * @param regionDTO 地区信息
-     * @return 创建成功的地区信息
+     * @return 地区信息
      */
     RegionVO createRegion(@Valid RegionDTO regionDTO);
 
@@ -25,24 +25,24 @@ public interface RegionService {
      * 修改地区
      *
      * @param regionDTO 地区信息
-     * @return 更新的地区信息
+     * @return 地区信息
      */
     RegionVO updateRegion(@Valid RegionDTO regionDTO);
 
     /**
      * 批量删除地区
      *
-     * @param ids 地区ID列表
+     * @param ids 地区 ID 列表
      */
-    void deleteRegions(List<Integer> ids);
+    void deleteRegions(List<Long> ids);
 
     /**
-     * 根据id获取地区
+     * 根据 ID 获取地区
      *
-     * @param id 地区ID
+     * @param id 地区 ID
      * @return 地区信息
      */
-    RegionVO getRegionById(Integer id);
+    RegionVO getRegionById(Long id);
 
     /**
      * 查询地区

@@ -11,11 +11,10 @@ import org.killze.acgbox.vo.content.TagVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.util.List;
 
 /**
- * 标签服务控制器。
+ * 标签控制器
  *
  * @author killze
  */
@@ -49,29 +48,27 @@ public class TagController {
      * 批量删除标签
      */
     @PostMapping("/delete")
-    public Result<Void> deleteTag(@RequestBody List<Integer> ids) {
+    public Result<Void> deleteTag(@RequestBody List<Long> ids) {
         log.info("删除标签：{}", ids);
         tagService.deleteTags(ids);
         return Result.success();
     }
 
     /**
-     * 根据id获取标签
+     * 根据 ID 获取标签
      */
     @GetMapping("/{id}")
-    public Result<TagVO> getTagById(@PathVariable Integer id) {
-        log.info("根据id获取标签：{}", id);
+    public Result<TagVO> getTagById(@PathVariable Long id) {
+        log.info("根据 ID 获取标签：{}", id);
         return Result.success(tagService.getTagById(id));
     }
 
     /**
-     * 分页查询获取标签
+     * 分页查询标签
      */
     @GetMapping("/page")
     public Result<PageVO<TagVO>> pageTag(TagPageDTO pageDTO) {
-        log.info("分页查询获取标签：{}", pageDTO);
-        return Result.success(tagService.pageTag(pageDTO)
-        );
+        log.info("分页查询标签：{}", pageDTO);
+        return Result.success(tagService.pageTag(pageDTO));
     }
-
 }

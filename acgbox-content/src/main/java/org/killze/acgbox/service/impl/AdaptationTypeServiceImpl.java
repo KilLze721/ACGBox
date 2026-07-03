@@ -14,16 +14,15 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 改编类型服务实现类。
+ * 改编类型服务实现类
  *
  * @author killze
  */
 @Service
 public class AdaptationTypeServiceImpl implements AdaptationTypeService {
-    
+
     @Autowired
     private AdaptationTypeMapper adaptationTypeMapper;
-
 
     /**
      * 创建改编类型
@@ -91,11 +90,11 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
     /**
      * 批量删除改编类型
      *
-     * @param ids 改编类型ID列表
+     * @param ids 改编类型 ID 列表
      */
     @Override
-    public void deleteAdaptationTypes(List<Integer> ids) {
-        // 判断ids是否为空
+    public void deleteAdaptationTypes(List<Long> ids) {
+        // 判断 ids 是否为空
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的改编类型");
         }
@@ -106,13 +105,13 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
     }
 
     /**
-     * 根据id获取改编类型
+     * 根据 ID 获取改编类型
      *
-     * @param id 改编类型id
+     * @param id 改编类型 ID
      * @return 改编类型信息
      */
     @Override
-    public AdaptationTypeVO getAdaptationTypeById(Integer id) {
+    public AdaptationTypeVO getAdaptationTypeById(Long id) {
         // 判断改编类型是否存在
         AdaptationType adaptationType = adaptationTypeMapper.selectById(id);
         if (adaptationType == null) {
@@ -126,13 +125,13 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
     }
 
     /**
-     * 获取所有改编类型
+     * 获取全部改编类型
      *
      * @return 改编类型列表
      */
     @Override
     public List<AdaptationTypeVO> listAdaptationTypes() {
-        // 查询所有改编类型
+        // 查询全部改编类型
         List<AdaptationType> adaptationTypes = adaptationTypeMapper.selectList(
                 new LambdaQueryWrapper<AdaptationType>()
                         .orderByAsc(AdaptationType::getName)

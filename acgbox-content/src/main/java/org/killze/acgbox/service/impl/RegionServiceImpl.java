@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 地区服务实现类。
+ * 地区服务实现类
  *
  * @author killze
  */
@@ -90,11 +90,11 @@ public class RegionServiceImpl implements RegionService {
     /**
      * 批量删除地区
      *
-     * @param ids 地区ID列表
+     * @param ids 地区 ID 列表
      */
     @Override
-    public void deleteRegions(List<Integer> ids) {
-        // 判断ids是否为空
+    public void deleteRegions(List<Long> ids) {
+        // 判断 ids 是否为空
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的地区");
         }
@@ -105,13 +105,13 @@ public class RegionServiceImpl implements RegionService {
     }
 
     /**
-     * 根据id获取地区
+     * 根据 ID 获取地区
      *
-     * @param id 地区id
+     * @param id 地区 ID
      * @return 地区信息
      */
     @Override
-    public RegionVO getRegionById(Integer id) {
+    public RegionVO getRegionById(Long id) {
         // 判断地区是否存在
         Region region = regionMapper.selectById(id);
         if (region == null) {
@@ -125,13 +125,13 @@ public class RegionServiceImpl implements RegionService {
     }
 
     /**
-     * 获取所有地区
+     * 获取全部地区
      *
      * @return 地区列表
      */
     @Override
     public List<RegionVO> listRegions() {
-        // 查询所有地区
+        // 查询全部地区
         List<Region> regions = regionMapper.selectList(
                 new LambdaQueryWrapper<Region>()
                         .orderByAsc(Region::getName)
@@ -144,6 +144,4 @@ public class RegionServiceImpl implements RegionService {
                         .build())
                 .toList();
     }
-
-
 }

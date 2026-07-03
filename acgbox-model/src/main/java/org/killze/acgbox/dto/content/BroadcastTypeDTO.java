@@ -10,9 +10,9 @@ import lombok.Data;
 public class BroadcastTypeDTO {
 
     /**
-     * 放送类型id
+     * 放送类型 ID
      */
-    private Integer id;
+    private Long id;
 
     /**
      * 放送类型名称

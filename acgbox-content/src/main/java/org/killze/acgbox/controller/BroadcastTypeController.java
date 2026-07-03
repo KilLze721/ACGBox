@@ -46,18 +46,18 @@ public class BroadcastTypeController {
      * 批量删除放送类型
      */
     @PostMapping("/delete")
-    public Result<Void> delete(@RequestBody List<Integer> ids) {
+    public Result<Void> delete(@RequestBody List<Long> ids) {
         log.info("删除放送类型：{}", ids);
         broadcastTypeService.deleteBroadcastTypes(ids);
         return Result.success();
     }
 
     /**
-     * 根据ID获取放送类型
+     * 根据 ID 获取放送类型
      */
     @GetMapping("/{id}")
-    public Result<BroadcastTypeVO> getById(@PathVariable Integer id) {
-        log.info("根据id获取放送类型：{}", id);
+    public Result<BroadcastTypeVO> getById(@PathVariable Long id) {
+        log.info("根据 ID 获取放送类型：{}", id);
         return Result.success(broadcastTypeService.getBroadcastTypeById(id));
     }
 

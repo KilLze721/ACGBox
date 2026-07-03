@@ -13,6 +13,11 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.List;
 
+/**
+ * 放送类型服务实现类
+ *
+ * @author killze
+ */
 @Service
 public class BroadcastTypeServiceImpl implements BroadcastTypeService {
 
@@ -63,9 +68,10 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
             throw new BusinessException("此放送类型不存在");
         }
         // 判断新名称是否被其他放送类型使用
-        BroadcastType exist = broadcastTypeMapper.selectOne(new LambdaQueryWrapper<BroadcastType>()
-                .eq(BroadcastType::getName, dto.getName())
-                .ne(BroadcastType::getId, dto.getId())
+        BroadcastType exist = broadcastTypeMapper.selectOne(
+                new LambdaQueryWrapper<BroadcastType>()
+                        .eq(BroadcastType::getName, dto.getName())
+                        .ne(BroadcastType::getId, dto.getId())
         );
         if (exist != null) {
             throw new BusinessException("此放送类型已存在");
@@ -84,34 +90,34 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
     /**
      * 批量删除放送类型
      *
-     * @param ids 放送类型ID列表
+     * @param ids 放送类型 ID 列表
      */
     @Override
-    public void deleteBroadcastTypes(List<Integer> ids) {
-        // 判断ids是否为空
+    public void deleteBroadcastTypes(List<Long> ids) {
+        // 判断 ids 是否为空
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的放送类型");
         }
-        // TODO 删除放送类型时判断是否被作品引用
+        // TODO 判断放送类型是否被作品引用
 
         // 删除放送类型
         broadcastTypeMapper.deleteByIds(ids);
     }
 
     /**
-     * 根据id获取放送类型
+     * 根据 ID 获取放送类型
      *
-     * @param id 放送类型id
+     * @param id 放送类型 ID
      * @return 放送类型信息
      */
     @Override
-    public BroadcastTypeVO getBroadcastTypeById(Integer id) {
+    public BroadcastTypeVO getBroadcastTypeById(Long id) {
         // 判断放送类型是否存在
         BroadcastType broadcastType = broadcastTypeMapper.selectById(id);
         if (broadcastType == null) {
             throw new BusinessException("此放送类型不存在");
         }
-        // 获取放送类型信息
+        // 返回放送类型信息
         return BroadcastTypeVO.builder()
                 .id(broadcastType.getId())
                 .name(broadcastType.getName())
@@ -119,18 +125,18 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
     }
 
     /**
-     * 获取所有放送类型
+     * 获取全部放送类型
      *
      * @return 放送类型列表
      */
     @Override
     public List<BroadcastTypeVO> listBroadcastTypes() {
-        // 获取所有放送类型
+        // 查询全部放送类型
         List<BroadcastType> list = broadcastTypeMapper.selectList(
                 new LambdaQueryWrapper<BroadcastType>()
                         .orderByAsc(BroadcastType::getName)
         );
-        // 获取放送类型列表
+        // 返回放送类型列表
         return list.stream()
                 .map(broadcastType -> BroadcastTypeVO.builder()
                         .id(broadcastType.getId())

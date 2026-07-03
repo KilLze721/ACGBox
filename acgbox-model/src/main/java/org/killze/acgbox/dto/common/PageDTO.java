@@ -9,12 +9,12 @@ import lombok.Data;
 public class PageDTO {
 
     /**
-     * 当前页
+     * 当前页码
      */
-    private Integer pageNum;
+    private Long pageNum;
 
     /**
-     * 每页数量
+     * 每页条数
      */
-    private Integer pageSize;
+    private Long pageSize;
 }

@@ -4,14 +4,15 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 /**
- * 区域数据传输对象
+ * 地区数据传输对象
  */
 @Data
 public class RegionDTO {
+
     /**
-     * 地区id
+     * 地区 ID
      */
-    private Integer id;
+    private Long id;
 
     /**
      * 地区名称

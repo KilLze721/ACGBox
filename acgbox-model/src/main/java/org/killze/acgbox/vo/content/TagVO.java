@@ -11,9 +11,9 @@ import lombok.Data;
 public class TagVO {
 
     /**
-     * 标签id
+     * 标签 ID
      */
-    private Integer id;
+    private Long id;
 
     /**
      * 标签名称

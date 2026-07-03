@@ -46,18 +46,18 @@ public class AdaptationTypeController {
      * 批量删除改编类型
      */
     @PostMapping("/delete")
-    public Result<Void> delete(@RequestBody List<Integer> ids) {
+    public Result<Void> delete(@RequestBody List<Long> ids) {
         log.info("删除改编类型：{}", ids);
         adaptationTypeService.deleteAdaptationTypes(ids);
         return Result.success();
     }
 
     /**
-     * 根据id获取改编类型
+     * 根据 ID 获取改编类型
      */
     @GetMapping("/{id}")
-    public Result<AdaptationTypeVO> getById(@PathVariable Integer id) {
-        log.info("根据id获取改编类型：{}", id);
+    public Result<AdaptationTypeVO> getById(@PathVariable Long id) {
+        log.info("根据 ID 获取改编类型：{}", id);
         return Result.success(adaptationTypeService.getAdaptationTypeById(id));
     }
 

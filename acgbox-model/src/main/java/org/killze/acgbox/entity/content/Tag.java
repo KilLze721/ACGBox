@@ -25,7 +25,7 @@ public class Tag {
      * 标签 ID。
      */
     @TableId(type = IdType.AUTO)
-    private Integer id;
+    private Long id;
 
     /**
      * 标签名称，例如科幻、恋爱、奇幻。

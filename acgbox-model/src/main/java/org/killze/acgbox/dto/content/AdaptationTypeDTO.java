@@ -1,4 +1,5 @@
 package org.killze.acgbox.dto.content;
+
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -9,9 +10,9 @@ import lombok.Data;
 public class AdaptationTypeDTO {
 
     /**
-     * 改编类型id
+     * 改编类型 ID
      */
-    private Integer id;
+    private Long id;
 
     /**
      * 改编类型名称
