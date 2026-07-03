@@ -19,7 +19,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/region")
 @Slf4j
-public class RegionController {
+public class                      RegionController {
 
     @Autowired
     private RegionService regionService;
