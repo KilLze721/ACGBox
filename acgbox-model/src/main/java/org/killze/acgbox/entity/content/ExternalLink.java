@@ -9,8 +9,10 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 /**
- * 外部链接实体，对应 external_link 表。
+ * 通用外部链接实体，对应 external_link 表。
  */
 @Data
 @Builder
@@ -26,10 +28,16 @@ public class ExternalLink {
     private Long id;
 
     /**
-     * 动画 ID，关联 anime 表。
+     * 外链所属对象类型，例如 ANIME、COMPANY、SERIES。
      */
-    @TableField("anime_id")
-    private Long animeId;
+    @TableField("target_type")
+    private String targetType;
+
+    /**
+     * 外链所属对象 ID。
+     */
+    @TableField("target_id")
+    private Long targetId;
 
     /**
      * 链接标题，例如官网、Bangumi、维基百科。
@@ -40,4 +48,22 @@ public class ExternalLink {
      * 链接 URL。
      */
     private String url;
+
+    /**
+     * 排序值，越小越靠前。
+     */
+    @TableField("sort_order")
+    private Long sortOrder;
+
+    /**
+     * 记录创建时间。
+     */
+    @TableField("created_at")
+    private LocalDateTime createdAt;
+
+    /**
+     * 记录最后更新时间。
+     */
+    @TableField("updated_at")
+    private LocalDateTime updatedAt;
 }

@@ -33,6 +33,11 @@ public class Company {
     private String name;
 
     /**
+     * 公司简介。
+     */
+    private String description;
+
+    /**
      * 记录创建时间。
      */
     @TableField("created_at")
