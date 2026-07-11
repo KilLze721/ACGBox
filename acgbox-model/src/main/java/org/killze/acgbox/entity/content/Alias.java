@@ -9,15 +9,17 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 /**
- * 动画别名实体，对应 anime_alias 表。
+ * 通用别名实体，对应 alias 表。
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@TableName("anime_alias")
-public class AnimeAlias {
+@TableName("alias")
+public class Alias {
 
     /**
      * 别名 ID。
@@ -26,14 +28,32 @@ public class AnimeAlias {
     private Long id;
 
     /**
-     * 动画 ID，关联 anime 表。
+     * 关联对象类型，例如 ANIME、MANGA、NOVEL。
      */
-    @TableField("anime_id")
-    private Long animeId;
+    @TableField("target_type")
+    private String targetType;
 
     /**
-     * 动画别名名称。
+     * 关联对象 ID。
+     */
+    @TableField("target_id")
+    private Long targetId;
+
+    /**
+     * 别名名称。
      */
     @TableField("alias_name")
     private String aliasName;
+
+    /**
+     * 创建时间。
+     */
+    @TableField("created_at")
+    private LocalDateTime createdAt;
+
+    /**
+     * 最后修改时间。
+     */
+    @TableField("updated_at")
+    private LocalDateTime updatedAt;
 }
