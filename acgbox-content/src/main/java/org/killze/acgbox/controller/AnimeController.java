@@ -39,4 +39,13 @@ public class AnimeController {
         log.info("修改动画：{}", animeDTO);
         return Result.success(animeService.updateAnime(animeDTO));
     }
+
+    /**
+     * 根据 ID 获取动画详情
+     */
+    @GetMapping("/{id}")
+    public Result<AnimeVO> getAnimeById(@PathVariable Long id) {
+        log.info("根据 ID 获取动画详情：{}", id);
+        return Result.success(animeService.getAnimeById(id));
+    }
 }

@@ -26,4 +26,12 @@ public interface AnimeService {
      * @return 动画信息
      */
     AnimeVO updateAnime(@Valid AnimeDTO animeDTO);
+
+    /**
+     * 根据 ID 查询动画详情
+     *
+     * @param id 动画 ID
+     * @return 动画详情
+     */
+    AnimeVO getAnimeById(Long id);
 }
