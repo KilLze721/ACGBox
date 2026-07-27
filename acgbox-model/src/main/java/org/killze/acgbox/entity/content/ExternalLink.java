@@ -9,8 +9,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 通用外部链接实体，对应 external_link 表。
  */
@@ -54,16 +52,4 @@ public class ExternalLink {
      */
     @TableField("sort_order")
     private Long sortOrder;
-
-    /**
-     * 记录创建时间。
-     */
-    @TableField("created_at")
-    private LocalDateTime createdAt;
-
-    /**
-     * 记录最后更新时间。
-     */
-    @TableField("updated_at")
-    private LocalDateTime updatedAt;
 }

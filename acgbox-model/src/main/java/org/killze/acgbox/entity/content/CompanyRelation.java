@@ -9,8 +9,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 通用公司关联实体，对应 company_relation 表。
  */
@@ -49,16 +47,4 @@ public class CompanyRelation {
      * 公司在对象中的职责，例如制作、发行、企划。
      */
     private String role;
-
-    /**
-     * 记录创建时间。
-     */
-    @TableField("created_at")
-    private LocalDateTime createdAt;
-
-    /**
-     * 记录最后更新时间。
-     */
-    @TableField("updated_at")
-    private LocalDateTime updatedAt;
 }

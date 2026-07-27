@@ -9,8 +9,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 通用标签关联实体，对应 tag_relation 表。
  */
@@ -44,16 +42,4 @@ public class TagRelation {
      */
     @TableField("tag_id")
     private Long tagId;
-
-    /**
-     * 创建时间。
-     */
-    @TableField("created_at")
-    private LocalDateTime createdAt;
-
-    /**
-     * 最后修改时间。
-     */
-    @TableField("updated_at")
-    private LocalDateTime updatedAt;
 }

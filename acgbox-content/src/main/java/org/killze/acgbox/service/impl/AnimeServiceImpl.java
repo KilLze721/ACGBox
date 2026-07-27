@@ -1,6 +1,7 @@
 package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.killze.acgbox.dto.content.AnimeDTO;
 import org.killze.acgbox.dto.content.CompanyRelationDTO;
 import org.killze.acgbox.dto.content.ExternalLinkDTO;
@@ -108,8 +109,6 @@ public class AnimeServiceImpl implements AnimeService {
                         .targetType("ANIME")
                         .targetId(anime.getId())
                         .aliasName(aliasName)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
                         .build()
         ));
         // 创建动画公司关联。
@@ -120,8 +119,6 @@ public class AnimeServiceImpl implements AnimeService {
                         .targetId(anime.getId())
                         .companyId(company.getCompanyId())
                         .role(company.getRole())
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
                         .build()
         ));
         // 创建动画外部链接。
@@ -133,8 +130,6 @@ public class AnimeServiceImpl implements AnimeService {
                         .title(externalLink.getTitle())
                         .url(externalLink.getUrl())
                         .sortOrder(externalLink.getSortOrder())
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
                         .build()
         ));
         // 创建动画标签关联。
@@ -144,8 +139,6 @@ public class AnimeServiceImpl implements AnimeService {
                         .targetType("ANIME")
                         .targetId(anime.getId())
                         .tagId(tagId)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
                         .build()
         ));
         // 创建动画系列关联。
@@ -158,15 +151,56 @@ public class AnimeServiceImpl implements AnimeService {
                             .workType("anime")
                             .workId(anime.getId())
                             .sortOrder(seriesSortOrder)
-                            .createdAt(LocalDateTime.now())
-                            .updatedAt(LocalDateTime.now())
                             .build()
             );
         }
         // 创建动画个人评分。
-        BigDecimal personalRatingScore = createPersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
+        BigDecimal personalRatingScore = saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
         // 返回动画信息。
         return buildAnimeVO(anime, aliasNames, companies, externalLinks, tagIds, seriesId, seriesSortOrder, personalRatingScore);
+    }
+
+    /**
+     * 1.构建动画信息。
+     *
+     * @param anime 动画信息
+     * @param aliasNames 别名列表
+     * @param companies 公司关联列表
+     * @param externalLinks 外部链接列表
+     * @param tagIds 标签 ID 列表
+     * @param seriesId 系列 ID
+     * @param seriesSortOrder 系列内排序值
+     * @param personalRatingScore 个人评分
+     * @return 动画信息
+     */
+    private AnimeVO buildAnimeVO(
+            Anime anime,
+            List<String> aliasNames,
+            List<CompanyRelationDTO> companies,
+            List<ExternalLinkDTO> externalLinks,
+            List<Long> tagIds,
+            Long seriesId,
+            Long seriesSortOrder,
+            BigDecimal personalRatingScore
+    ) {
+        return AnimeVO.builder()
+                .id(anime.getId())
+                .name(anime.getName())
+                .episodeCount(anime.getEpisodeCount())
+                .broadcastTypeId(anime.getBroadcastTypeId())
+                .adaptationTypeId(anime.getAdaptationTypeId())
+                .regionId(anime.getRegionId())
+                .airDate(anime.getAirDate())
+                .coverImageUrl(anime.getCoverImageUrl())
+                .status(anime.getStatus())
+                .aliasNames(aliasNames)
+                .companies(buildCompanyRelationVOList(companies))
+                .externalLinks(buildExternalLinkVOList(externalLinks))
+                .tagIds(tagIds)
+                .seriesId(seriesId)
+                .seriesSortOrder(seriesId == null ? null : seriesSortOrder)
+                .personalRatingScore(personalRatingScore)
+                .build();
     }
 
     /**
@@ -250,71 +284,6 @@ public class AnimeServiceImpl implements AnimeService {
                 .toList();
     }
 
-    /**
-     * 1.5 创建个人评分。
-     *
-     * @param animeId 动画 ID
-     * @param score 个人评分
-     * @return 个人评分
-     */
-    private BigDecimal createPersonalRating(Long animeId, BigDecimal score) {
-        if (score == null) {
-            return null;
-        }
-        personalRatingMapper.insert(
-                PersonalRating.builder()
-                        .targetType("ANIME")
-                        .targetId(animeId)
-                        .score(score)
-                        .createdAt(LocalDateTime.now())
-                        .updatedAt(LocalDateTime.now())
-                        .build()
-        );
-        return score;
-    }
-
-    /**
-     * 1.6 构建动画信息。
-     *
-     * @param anime 动画信息
-     * @param aliasNames 别名列表
-     * @param companies 公司关联列表
-     * @param externalLinks 外部链接列表
-     * @param tagIds 标签 ID 列表
-     * @param seriesId 系列 ID
-     * @param seriesSortOrder 系列内排序值
-     * @param personalRatingScore 个人评分
-     * @return 动画信息
-     */
-    private AnimeVO buildAnimeVO(
-            Anime anime,
-            List<String> aliasNames,
-            List<CompanyRelationDTO> companies,
-            List<ExternalLinkDTO> externalLinks,
-            List<Long> tagIds,
-            Long seriesId,
-            Long seriesSortOrder,
-            BigDecimal personalRatingScore
-    ) {
-        return AnimeVO.builder()
-                .id(anime.getId())
-                .name(anime.getName())
-                .episodeCount(anime.getEpisodeCount())
-                .broadcastTypeId(anime.getBroadcastTypeId())
-                .adaptationTypeId(anime.getAdaptationTypeId())
-                .regionId(anime.getRegionId())
-                .airDate(anime.getAirDate())
-                .coverImageUrl(anime.getCoverImageUrl())
-                .status(anime.getStatus())
-                .aliasNames(aliasNames)
-                .companies(buildCompanyRelationVOList(companies))
-                .externalLinks(buildExternalLinkVOList(externalLinks))
-                .tagIds(tagIds)
-                .seriesId(seriesId)
-                .seriesSortOrder(seriesId == null ? null : seriesSortOrder)
-                .personalRatingScore(personalRatingScore)
-                .build();
-    }
 
 
 
@@ -401,7 +370,12 @@ public class AnimeServiceImpl implements AnimeService {
      * @return 公司关联列表
      */
     private List<CompanyRelationVO> buildDetailCompanyRelationVOList(Long animeId) {
-        return companyRelationMapper.selectByTarget("ANIME", animeId)
+        return companyRelationMapper.selectList(
+                        new LambdaQueryWrapper<CompanyRelation>()
+                                .eq(CompanyRelation::getTargetType, "ANIME")
+                                .eq(CompanyRelation::getTargetId, animeId)
+                                .orderByAsc(CompanyRelation::getId)
+                )
                 .stream()
                 .map(companyRelation -> {
                     return CompanyRelationVO.builder()
@@ -482,6 +456,9 @@ public class AnimeServiceImpl implements AnimeService {
         return personalRating == null ? null : personalRating.getScore();
     }
 
+
+
+
     /**
      * 三、修改动画。
      *
@@ -491,8 +468,225 @@ public class AnimeServiceImpl implements AnimeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AnimeVO updateAnime(AnimeDTO animeDTO) {
-        return null;
+        // 判断动画 ID 是否为空。
+        if (animeDTO.getId() == null) {
+            throw new BusinessException("动画 ID 不能为空");
+        }
+        // 判断动画是否存在。
+        Anime anime = animeMapper.selectById(animeDTO.getId());
+        if (anime == null) {
+            throw new BusinessException("此动画不存在");
+        }
+        // 判断新名称是否被其他动画使用。
+        Anime exist = animeMapper.selectOne(
+                new LambdaQueryWrapper<Anime>()
+                        .eq(Anime::getName, animeDTO.getName())
+                        .ne(Anime::getId, animeDTO.getId())
+        );
+        if (exist != null) {
+            throw new BusinessException("此动画已存在");
+        }
+        // 在修改数据库前完成关联数据清洗和校验。
+        List<String> aliasNames = buildAliasNames(animeDTO.getAliasNames());
+        List<CompanyRelationDTO> companies = buildCompanies(animeDTO.getCompanies());
+        List<ExternalLinkDTO> externalLinks = buildExternalLinks(animeDTO.getExternalLinks());
+        List<Long> tagIds = buildTagIds(animeDTO.getTagIds());
+        Long seriesId = buildUpdateSeriesId(animeDTO.getSeriesId());
+        Long seriesSortOrder = seriesId == null
+                ? null
+                : animeDTO.getSeriesSortOrder() == null ? 0L : animeDTO.getSeriesSortOrder();
+        // 显式设置全部基础字段，确保可空字段也能被清空。
+        animeMapper.update(
+                null,
+                new LambdaUpdateWrapper<Anime>()
+                        .eq(Anime::getId, anime.getId())
+                        .set(Anime::getName, animeDTO.getName())
+                        .set(Anime::getEpisodeCount, animeDTO.getEpisodeCount())
+                        .set(Anime::getBroadcastTypeId, animeDTO.getBroadcastTypeId())
+                        .set(Anime::getAdaptationTypeId, animeDTO.getAdaptationTypeId())
+                        .set(Anime::getRegionId, animeDTO.getRegionId())
+                        .set(Anime::getAirDate, animeDTO.getAirDate())
+                        .set(Anime::getCoverImageUrl, animeDTO.getCoverImageUrl())
+                        .set(Anime::getStatus, animeDTO.getStatus())
+                        .set(Anime::getUpdatedAt, LocalDateTime.now())
+        );
+        // 使用前端提交的最终数据覆盖动画关联信息。
+        replaceAnimeAliases(anime.getId(), aliasNames);
+        replaceAnimeCompanies(anime.getId(), companies);
+        replaceAnimeExternalLinks(anime.getId(), externalLinks);
+        replaceAnimeTags(anime.getId(), tagIds);
+        replaceAnimeSeries(anime.getId(), seriesId, seriesSortOrder);
+        saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
+        // 返回修改后的动画完整信息。
+        return getAnimeById(anime.getId());
     }
+
+    /**
+     * 3.1 校验修改时传入的系列 ID。
+     *
+     * @param seriesId 系列 ID
+     * @return 系列 ID
+     */
+    private Long buildUpdateSeriesId(Long seriesId) {
+        if (seriesId != null && seriesMapper.selectById(seriesId) == null) {
+            throw new BusinessException("系列不存在");
+        }
+        return seriesId;
+    }
+
+    /**
+     * 3.2 覆盖动画别名。
+     *
+     * @param animeId 动画 ID
+     * @param aliasNames 别名列表
+     */
+    private void replaceAnimeAliases(Long animeId, List<String> aliasNames) {
+        aliasMapper.delete(
+                new LambdaQueryWrapper<Alias>()
+                        .eq(Alias::getTargetType, "ANIME")
+                        .eq(Alias::getTargetId, animeId)
+        );
+        aliasNames.forEach(aliasName -> aliasMapper.insert(
+                Alias.builder()
+                        .targetType("ANIME")
+                        .targetId(animeId)
+                        .aliasName(aliasName)
+                        .build()
+        ));
+    }
+
+    /**
+     * 3.3 覆盖动画公司关联。
+     *
+     * @param animeId 动画 ID
+     * @param companies 公司关联列表
+     */
+    private void replaceAnimeCompanies(Long animeId, List<CompanyRelationDTO> companies) {
+        companyRelationMapper.delete(
+                new LambdaQueryWrapper<CompanyRelation>()
+                        .eq(CompanyRelation::getTargetType, "ANIME")
+                        .eq(CompanyRelation::getTargetId, animeId)
+        );
+        companies.forEach(company -> companyRelationMapper.insert(
+                CompanyRelation.builder()
+                        .targetType("ANIME")
+                        .targetId(animeId)
+                        .companyId(company.getCompanyId())
+                        .role(company.getRole())
+                        .build()
+        ));
+    }
+
+    /**
+     * 3.4 覆盖动画外部链接。
+     *
+     * @param animeId 动画 ID
+     * @param externalLinks 外部链接列表
+     */
+    private void replaceAnimeExternalLinks(Long animeId, List<ExternalLinkDTO> externalLinks) {
+        externalLinkMapper.delete(
+                new LambdaQueryWrapper<ExternalLink>()
+                        .eq(ExternalLink::getTargetType, "ANIME")
+                        .eq(ExternalLink::getTargetId, animeId)
+        );
+        externalLinks.forEach(externalLink -> externalLinkMapper.insert(
+                ExternalLink.builder()
+                        .targetType("ANIME")
+                        .targetId(animeId)
+                        .title(externalLink.getTitle())
+                        .url(externalLink.getUrl())
+                        .sortOrder(externalLink.getSortOrder())
+                        .build()
+        ));
+    }
+
+    /**
+     * 3.5 覆盖动画标签关联。
+     *
+     * @param animeId 动画 ID
+     * @param tagIds 标签 ID 列表
+     */
+    private void replaceAnimeTags(Long animeId, List<Long> tagIds) {
+        tagRelationMapper.delete(
+                new LambdaQueryWrapper<TagRelation>()
+                        .eq(TagRelation::getTargetType, "ANIME")
+                        .eq(TagRelation::getTargetId, animeId)
+        );
+        tagIds.forEach(tagId -> tagRelationMapper.insert(
+                TagRelation.builder()
+                        .targetType("ANIME")
+                        .targetId(animeId)
+                        .tagId(tagId)
+                        .build()
+        ));
+    }
+
+    /**
+     * 3.6 覆盖动画系列关联。
+     *
+     * @param animeId 动画 ID
+     * @param seriesId 系列 ID
+     * @param seriesSortOrder 系列内排序值
+     */
+    private void replaceAnimeSeries(Long animeId, Long seriesId, Long seriesSortOrder) {
+        seriesItemMapper.delete(
+                new LambdaQueryWrapper<SeriesItem>()
+                        .eq(SeriesItem::getWorkType, "anime")
+                        .eq(SeriesItem::getWorkId, animeId)
+        );
+        if (seriesId == null) {
+            return;
+        }
+        seriesItemMapper.insert(
+                SeriesItem.builder()
+                        .seriesId(seriesId)
+                        .workType("anime")
+                        .workId(animeId)
+                        .sortOrder(seriesSortOrder)
+                        .build()
+        );
+    }
+
+    /**
+     * 保存、修改或删除动画个人评分。
+     *
+     * @param animeId 动画 ID
+     * @param score 个人评分
+     * @return 个人评分
+     */
+    private BigDecimal saveOrUpdatePersonalRating(Long animeId, BigDecimal score) {
+        PersonalRating personalRating = personalRatingMapper.selectOne(
+                new LambdaQueryWrapper<PersonalRating>()
+                        .eq(PersonalRating::getTargetType, "ANIME")
+                        .eq(PersonalRating::getTargetId, animeId)
+        );
+        // 评分为空时删除已有评分。
+        if (score == null) {
+            if (personalRating != null) {
+                personalRatingMapper.deleteById(personalRating.getId());
+            }
+            return null;
+        }
+        // 没有评分记录时创建评分。
+        if (personalRating == null) {
+            personalRatingMapper.insert(
+                    PersonalRating.builder()
+                            .targetType("ANIME")
+                            .targetId(animeId)
+                            .score(score)
+                            .createdAt(LocalDateTime.now())
+                            .updatedAt(LocalDateTime.now())
+                            .build()
+            );
+            return score;
+        }
+        // 已有评分记录时修改评分。
+        personalRating.setScore(score);
+        personalRating.setUpdatedAt(LocalDateTime.now());
+        personalRatingMapper.updateById(personalRating);
+        return score;
+    }
+
 
     /**
      * 通用别名数据清洗方法。

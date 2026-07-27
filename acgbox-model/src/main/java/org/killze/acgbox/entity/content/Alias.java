@@ -9,8 +9,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 通用别名实体，对应 alias 表。
  */
@@ -44,16 +42,4 @@ public class Alias {
      */
     @TableField("alias_name")
     private String aliasName;
-
-    /**
-     * 创建时间。
-     */
-    @TableField("created_at")
-    private LocalDateTime createdAt;
-
-    /**
-     * 最后修改时间。
-     */
-    @TableField("updated_at")
-    private LocalDateTime updatedAt;
 }
