@@ -2,36 +2,57 @@ package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.killze.acgbox.dto.content.AnimeDTO;
+import org.killze.acgbox.dto.content.AnimePageDTO;
 import org.killze.acgbox.dto.content.CompanyRelationDTO;
 import org.killze.acgbox.dto.content.ExternalLinkDTO;
 import org.killze.acgbox.entity.content.*;
 import org.killze.acgbox.exception.BusinessException;
+import org.killze.acgbox.mapper.AdaptationTypeMapper;
 import org.killze.acgbox.mapper.AliasMapper;
 import org.killze.acgbox.mapper.AnimeMapper;
+import org.killze.acgbox.mapper.BroadcastTypeMapper;
 import org.killze.acgbox.mapper.CompanyMapper;
 import org.killze.acgbox.mapper.CompanyRelationMapper;
 import org.killze.acgbox.mapper.ExternalLinkMapper;
 import org.killze.acgbox.mapper.PersonalRatingMapper;
+import org.killze.acgbox.mapper.RegionMapper;
 import org.killze.acgbox.mapper.SeriesItemMapper;
 import org.killze.acgbox.mapper.SeriesMapper;
 import org.killze.acgbox.mapper.TagMapper;
 import org.killze.acgbox.mapper.TagRelationMapper;
 import org.killze.acgbox.service.AnimeService;
+import org.killze.acgbox.vo.common.PageVO;
+import org.killze.acgbox.vo.content.AdaptationTypeVO;
+import org.killze.acgbox.vo.content.AnimeCompanyVO;
+import org.killze.acgbox.vo.content.AnimePageVO;
 import org.killze.acgbox.vo.content.AnimeVO;
+import org.killze.acgbox.vo.content.BroadcastTypeVO;
 import org.killze.acgbox.vo.content.CompanyRelationVO;
 import org.killze.acgbox.vo.content.ExternalLinkVO;
+import org.killze.acgbox.vo.content.RegionVO;
+import org.killze.acgbox.vo.content.SeriesVO;
+import org.killze.acgbox.vo.content.TagVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
+import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 动画服务实现类。
@@ -43,6 +64,15 @@ public class AnimeServiceImpl implements AnimeService {
 
     @Autowired
     private AnimeMapper animeMapper;
+
+    @Autowired
+    private BroadcastTypeMapper broadcastTypeMapper;
+
+    @Autowired
+    private AdaptationTypeMapper adaptationTypeMapper;
+
+    @Autowired
+    private RegionMapper regionMapper;
 
     @Autowired
     private AliasMapper aliasMapper;
@@ -685,6 +715,612 @@ public class AnimeServiceImpl implements AnimeService {
         personalRating.setUpdatedAt(LocalDateTime.now());
         personalRatingMapper.updateById(personalRating);
         return score;
+    }
+
+    /**
+     * 四、批量删除动画。
+     *
+     * @param ids 动画 ID 列表
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteAnime(List<Long> ids) {
+        // 判断动画 ID 列表是否为空。
+        if (ids == null || ids.isEmpty()) {
+            throw new BusinessException("请选择要删除的动画");
+        }
+        // 删除动画别名。
+        aliasMapper.delete(
+                new LambdaQueryWrapper<Alias>()
+                        .eq(Alias::getTargetType, "ANIME")
+                        .in(Alias::getTargetId, ids)
+        );
+        // 删除动画公司关联。
+        companyRelationMapper.delete(
+                new LambdaQueryWrapper<CompanyRelation>()
+                        .eq(CompanyRelation::getTargetType, "ANIME")
+                        .in(CompanyRelation::getTargetId, ids)
+        );
+        // 删除动画外部链接。
+        externalLinkMapper.delete(
+                new LambdaQueryWrapper<ExternalLink>()
+                        .eq(ExternalLink::getTargetType, "ANIME")
+                        .in(ExternalLink::getTargetId, ids)
+        );
+        // 删除动画标签关联。
+        tagRelationMapper.delete(
+                new LambdaQueryWrapper<TagRelation>()
+                        .eq(TagRelation::getTargetType, "ANIME")
+                        .in(TagRelation::getTargetId, ids)
+        );
+        // 删除动画系列关联。
+        seriesItemMapper.delete(
+                new LambdaQueryWrapper<SeriesItem>()
+                        .eq(SeriesItem::getWorkType, "anime")
+                        .in(SeriesItem::getWorkId, ids)
+        );
+        // 删除动画个人评分。
+        personalRatingMapper.delete(
+                new LambdaQueryWrapper<PersonalRating>()
+                        .eq(PersonalRating::getTargetType, "ANIME")
+                        .in(PersonalRating::getTargetId, ids)
+        );
+        // 删除动画。
+        animeMapper.deleteByIds(ids);
+    }
+
+    /**
+     * 五、分页查询动画。
+     *
+     * @param pageDTO 分页查询参数
+     * @return 动画分页结果
+     */
+    @Override
+    public PageVO<AnimePageVO> pageAnime(AnimePageDTO pageDTO) {
+        BroadcastDateRange dateRange = normalizeAnimePageDTO(pageDTO);
+        Page<Anime> page = new Page<>(pageDTO.getPageNum(), pageDTO.getPageSize());
+        IPage<Anime> result = animeMapper.selectAnimePage(
+                page,
+                pageDTO,
+                dateRange.startDate(),
+                dateRange.endDate()
+        );
+        return PageVO.<AnimePageVO>builder()
+                .pageNum(result.getCurrent())
+                .pageSize(result.getSize())
+                .total(result.getTotal())
+                .pages(result.getPages())
+                .rows(buildAnimePageVOList(result.getRecords()))
+                .build();
+    }
+
+    /**
+     * 5.1 规范化并校验动画分页查询参数。
+     *
+     * @param pageDTO 分页查询参数
+     * @return 转换后的放送日期范围
+     */
+    private BroadcastDateRange normalizeAnimePageDTO(AnimePageDTO pageDTO) {
+        if (pageDTO == null) {
+            throw new BusinessException("分页查询参数不能为空");
+        }
+        if (pageDTO.getPageNum() == null) {
+            pageDTO.setPageNum(1L);
+        }
+        if (pageDTO.getPageSize() == null) {
+            pageDTO.setPageSize(20L);
+        }
+        if (pageDTO.getPageNum() < 1L) {
+            throw new BusinessException("page 必须大于等于 1");
+        }
+        if (pageDTO.getPageSize() < 1L || pageDTO.getPageSize() > 100L) {
+            throw new BusinessException("pageSize 必须处于 1 到 100 之间");
+        }
+        pageDTO.setKeyword(normalizeText(pageDTO.getKeyword()));
+        pageDTO.setBroadcastStartDate(normalizeText(pageDTO.getBroadcastStartDate()));
+        pageDTO.setBroadcastEndDate(normalizeText(pageDTO.getBroadcastEndDate()));
+        pageDTO.setTagIds(buildPageTagIds(pageDTO.getTagIds()));
+        pageDTO.setTagMatchMode(normalizeTagMatchMode(pageDTO.getTagMatchMode()));
+        pageDTO.setSortBy(normalizeSortBy(pageDTO.getSortBy()));
+        pageDTO.setSortDirection(normalizeSortDirection(pageDTO.getSortDirection()));
+        validatePageReferenceIds(pageDTO);
+        validatePageRating(pageDTO);
+        LocalDate startDate = parseBroadcastDate(
+                pageDTO.getBroadcastStartDate(),
+                false,
+                "broadcastStartDate"
+        );
+        LocalDate endDate = parseBroadcastDate(
+                pageDTO.getBroadcastEndDate(),
+                true,
+                "broadcastEndDate"
+        );
+        if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+            throw new BusinessException("broadcastStartDate 不能晚于 broadcastEndDate");
+        }
+        return new BroadcastDateRange(startDate, endDate);
+    }
+
+    /**
+     * 5.2 去除字符串首尾空格。
+     *
+     * @param value 字符串
+     * @return 规范化后的字符串
+     */
+    private String normalizeText(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    /**
+     * 5.3 规范化标签 ID 列表。
+     *
+     * @param tagIds 标签 ID 列表
+     * @return 去空去重后的标签 ID 列表
+     */
+    private List<Long> buildPageTagIds(List<Long> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return List.of();
+        }
+        return tagIds.stream()
+                .filter(tagId -> tagId != null)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * 5.4 规范化标签匹配方式。
+     *
+     * @param tagMatchMode 标签匹配方式
+     * @return 标签匹配方式
+     */
+    private String normalizeTagMatchMode(String tagMatchMode) {
+        String value = normalizeText(tagMatchMode);
+        if (value == null) {
+            return "ALL";
+        }
+        value = value.toUpperCase(Locale.ROOT);
+        if (!"ALL".equals(value) && !"ANY".equals(value)) {
+            throw new BusinessException("tagMatchMode 仅支持 ALL 或 ANY");
+        }
+        return value;
+    }
+
+    /**
+     * 5.5 规范化排序字段。
+     *
+     * @param sortBy 排序字段
+     * @return 排序字段
+     */
+    private String normalizeSortBy(String sortBy) {
+        String value = normalizeText(sortBy);
+        if (value == null) {
+            return "BROADCAST_DATE";
+        }
+        value = value.toUpperCase(Locale.ROOT);
+        if (!"BROADCAST_DATE".equals(value) && !"PERSONAL_RATING".equals(value)) {
+            throw new BusinessException("sortBy 仅支持 BROADCAST_DATE 或 PERSONAL_RATING");
+        }
+        return value;
+    }
+
+    /**
+     * 5.6 规范化排序方向。
+     *
+     * @param sortDirection 排序方向
+     * @return 排序方向
+     */
+    private String normalizeSortDirection(String sortDirection) {
+        String value = normalizeText(sortDirection);
+        if (value == null) {
+            return "DESC";
+        }
+        value = value.toUpperCase(Locale.ROOT);
+        if (!"ASC".equals(value) && !"DESC".equals(value)) {
+            throw new BusinessException("sortDirection 仅支持 ASC 或 DESC");
+        }
+        return value;
+    }
+
+    /**
+     * 5.7 校验分页查询中的关联 ID。
+     *
+     * @param pageDTO 分页查询参数
+     */
+    private void validatePageReferenceIds(AnimePageDTO pageDTO) {
+        if (pageDTO.getBroadcastTypeId() != null
+                && broadcastTypeMapper.selectById(pageDTO.getBroadcastTypeId()) == null) {
+            throw new BusinessException("broadcastTypeId 对应的放送类型不存在");
+        }
+        if (pageDTO.getAdaptationTypeId() != null
+                && adaptationTypeMapper.selectById(pageDTO.getAdaptationTypeId()) == null) {
+            throw new BusinessException("adaptationTypeId 对应的改编类型不存在");
+        }
+        if (pageDTO.getRegionId() != null && regionMapper.selectById(pageDTO.getRegionId()) == null) {
+            throw new BusinessException("regionId 对应的地区不存在");
+        }
+        if (pageDTO.getCompanyId() != null && companyMapper.selectById(pageDTO.getCompanyId()) == null) {
+            throw new BusinessException("companyId 对应的公司不存在");
+        }
+        if (pageDTO.getStatus() != null && (pageDTO.getStatus() < 1L || pageDTO.getStatus() > 4L)) {
+            throw new BusinessException("status 仅支持 1、2、3、4");
+        }
+        if (!pageDTO.getTagIds().isEmpty()) {
+            Set<Long> existTagIds = tagMapper.selectByIds(pageDTO.getTagIds())
+                    .stream()
+                    .map(Tag::getId)
+                    .collect(Collectors.toSet());
+            if (!existTagIds.containsAll(pageDTO.getTagIds())) {
+                throw new BusinessException("tagIds 中存在无效的标签 ID");
+            }
+        }
+    }
+
+    /**
+     * 5.8 校验评分范围。
+     *
+     * @param pageDTO 分页查询参数
+     */
+    private void validatePageRating(AnimePageDTO pageDTO) {
+        validateRatingValue(pageDTO.getRatingMin(), "ratingMin");
+        validateRatingValue(pageDTO.getRatingMax(), "ratingMax");
+        if (pageDTO.getRatingMin() != null
+                && pageDTO.getRatingMax() != null
+                && pageDTO.getRatingMin().compareTo(pageDTO.getRatingMax()) > 0) {
+            throw new BusinessException("ratingMin 不能大于 ratingMax");
+        }
+    }
+
+    /**
+     * 5.9 校验单个评分值。
+     *
+     * @param rating 评分
+     * @param fieldName 字段名称
+     */
+    private void validateRatingValue(BigDecimal rating, String fieldName) {
+        if (rating == null) {
+            return;
+        }
+        if (rating.compareTo(BigDecimal.ZERO) < 0 || rating.compareTo(BigDecimal.TEN) > 0) {
+            throw new BusinessException(fieldName + " 必须处于 0 到 10 之间");
+        }
+        if (rating.stripTrailingZeros().scale() > 1) {
+            throw new BusinessException(fieldName + " 最多支持一位小数");
+        }
+    }
+
+    /**
+     * 5.10 转换放送日期查询参数。
+     *
+     * @param value 日期参数
+     * @param end 是否为结束日期
+     * @param fieldName 字段名称
+     * @return 转换后的日期
+     */
+    private LocalDate parseBroadcastDate(String value, boolean end, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            if (value.matches("\\d{4}")) {
+                int year = Integer.parseInt(value);
+                if (year < 1) {
+                    throw new DateTimeException("年份必须大于 0");
+                }
+                return end ? LocalDate.of(year, 12, 31) : LocalDate.of(year, 1, 1);
+            }
+            if (value.matches("\\d{4}-\\d{2}")) {
+                int year = Integer.parseInt(value.substring(0, 4));
+                int month = Integer.parseInt(value.substring(5, 7));
+                if (year < 1) {
+                    throw new DateTimeException("年份必须大于 0");
+                }
+                LocalDate firstDay = LocalDate.of(year, month, 1);
+                return end ? firstDay.withDayOfMonth(firstDay.lengthOfMonth()) : firstDay;
+            }
+        } catch (DateTimeException | NumberFormatException e) {
+            throw new BusinessException(fieldName + " 格式错误，正确格式为 yyyy 或 yyyy-MM");
+        }
+        throw new BusinessException(fieldName + " 格式错误，正确格式为 yyyy 或 yyyy-MM");
+    }
+
+    /**
+     * 5.11 批量构建动画分页数据。
+     *
+     * @param animeList 当前页动画列表
+     * @return 动画分页数据列表
+     */
+    private List<AnimePageVO> buildAnimePageVOList(List<Anime> animeList) {
+        if (animeList == null || animeList.isEmpty()) {
+            return List.of();
+        }
+        List<Long> animeIds = animeList.stream().map(Anime::getId).toList();
+        Map<Long, List<String>> aliasNamesMap = buildPageAliasNamesMap(animeIds);
+        Map<Long, List<TagVO>> tagsMap = buildPageTagsMap(animeIds);
+        Map<Long, List<AnimeCompanyVO>> companiesMap = buildPageCompaniesMap(animeIds);
+        Map<Long, List<ExternalLinkVO>> externalLinksMap = buildPageExternalLinksMap(animeIds);
+        Map<Long, BigDecimal> ratingMap = buildPageRatingMap(animeIds);
+        Map<Long, SeriesVO> seriesMap = buildPageSeriesMap(animeIds);
+
+        Set<Long> broadcastTypeIds = animeList.stream()
+                .map(Anime::getBroadcastTypeId)
+                .collect(Collectors.toSet());
+        Set<Long> adaptationTypeIds = animeList.stream()
+                .map(Anime::getAdaptationTypeId)
+                .collect(Collectors.toSet());
+        Set<Long> regionIds = animeList.stream()
+                .map(Anime::getRegionId)
+                .collect(Collectors.toSet());
+        Map<Long, BroadcastType> broadcastTypeMap = buildEntityMap(
+                broadcastTypeMapper.selectByIds(broadcastTypeIds),
+                BroadcastType::getId
+        );
+        Map<Long, AdaptationType> adaptationTypeMap = buildEntityMap(
+                adaptationTypeMapper.selectByIds(adaptationTypeIds),
+                AdaptationType::getId
+        );
+        Map<Long, Region> regionMap = buildEntityMap(
+                regionMapper.selectByIds(regionIds),
+                Region::getId
+        );
+
+        return animeList.stream()
+                .map(anime -> {
+                    BroadcastType broadcastType = broadcastTypeMap.get(anime.getBroadcastTypeId());
+                    AdaptationType adaptationType = adaptationTypeMap.get(anime.getAdaptationTypeId());
+                    Region region = regionMap.get(anime.getRegionId());
+                    return AnimePageVO.builder()
+                            .id(anime.getId())
+                            .name(anime.getName())
+                            .aliasNames(aliasNamesMap.getOrDefault(anime.getId(), List.of()))
+                            .tags(tagsMap.getOrDefault(anime.getId(), List.of()))
+                            .episodeCount(anime.getEpisodeCount())
+                            .broadcastType(buildBroadcastTypeVO(broadcastType))
+                            .adaptationType(buildAdaptationTypeVO(adaptationType))
+                            .airDate(anime.getAirDate())
+                            .coverImageUrl(anime.getCoverImageUrl())
+                            .status(anime.getStatus())
+                            .region(buildRegionVO(region))
+                            .companies(companiesMap.getOrDefault(anime.getId(), List.of()))
+                            .externalLinks(externalLinksMap.getOrDefault(anime.getId(), List.of()))
+                            .personalRating(ratingMap.get(anime.getId()))
+                            .series(seriesMap.get(anime.getId()))
+                            .build();
+                })
+                .toList();
+    }
+
+    /**
+     * 5.12 批量查询动画别名。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画别名映射
+     */
+    private Map<Long, List<String>> buildPageAliasNamesMap(List<Long> animeIds) {
+        Map<Long, List<String>> result = new HashMap<>();
+        aliasMapper.selectList(
+                new LambdaQueryWrapper<Alias>()
+                        .eq(Alias::getTargetType, "ANIME")
+                        .in(Alias::getTargetId, animeIds)
+                        .orderByAsc(Alias::getId)
+        ).forEach(alias -> result.computeIfAbsent(alias.getTargetId(), key -> new ArrayList<>())
+                .add(alias.getAliasName()));
+        return result;
+    }
+
+    /**
+     * 5.13 批量查询动画标签。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画标签映射
+     */
+    private Map<Long, List<TagVO>> buildPageTagsMap(List<Long> animeIds) {
+        List<TagRelation> relations = tagRelationMapper.selectList(
+                new LambdaQueryWrapper<TagRelation>()
+                        .eq(TagRelation::getTargetType, "ANIME")
+                        .in(TagRelation::getTargetId, animeIds)
+                        .orderByAsc(TagRelation::getId)
+        );
+        Set<Long> tagIds = relations.stream()
+                .map(TagRelation::getTagId)
+                .collect(Collectors.toSet());
+        List<Tag> tags = tagIds.isEmpty() ? List.of() : tagMapper.selectByIds(tagIds);
+        Map<Long, Tag> tagMap = buildEntityMap(tags, Tag::getId);
+        Map<Long, List<TagVO>> result = new HashMap<>();
+        relations.forEach(relation -> {
+            Tag tag = tagMap.get(relation.getTagId());
+            if (tag != null) {
+                result.computeIfAbsent(relation.getTargetId(), key -> new ArrayList<>())
+                        .add(TagVO.builder().id(tag.getId()).name(tag.getName()).build());
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 5.14 批量查询动画关联公司。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画关联公司映射
+     */
+    private Map<Long, List<AnimeCompanyVO>> buildPageCompaniesMap(List<Long> animeIds) {
+        List<CompanyRelation> relations = companyRelationMapper.selectList(
+                new LambdaQueryWrapper<CompanyRelation>()
+                        .eq(CompanyRelation::getTargetType, "ANIME")
+                        .in(CompanyRelation::getTargetId, animeIds)
+                        .orderByAsc(CompanyRelation::getId)
+        );
+        Set<Long> companyIds = relations.stream()
+                .map(CompanyRelation::getCompanyId)
+                .collect(Collectors.toSet());
+        List<Company> companies = companyIds.isEmpty() ? List.of() : companyMapper.selectByIds(companyIds);
+        Map<Long, Company> companyMap = buildEntityMap(companies, Company::getId);
+        Map<Long, List<AnimeCompanyVO>> result = new HashMap<>();
+        relations.forEach(relation -> {
+            Company company = companyMap.get(relation.getCompanyId());
+            if (company != null) {
+                result.computeIfAbsent(relation.getTargetId(), key -> new ArrayList<>())
+                        .add(AnimeCompanyVO.builder()
+                                .companyId(company.getId())
+                                .companyName(company.getName())
+                                .role(relation.getRole())
+                                .build());
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 5.15 批量查询动画外部链接。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画外部链接映射
+     */
+    private Map<Long, List<ExternalLinkVO>> buildPageExternalLinksMap(List<Long> animeIds) {
+        Map<Long, List<ExternalLinkVO>> result = new HashMap<>();
+        externalLinkMapper.selectList(
+                new LambdaQueryWrapper<ExternalLink>()
+                        .eq(ExternalLink::getTargetType, "ANIME")
+                        .in(ExternalLink::getTargetId, animeIds)
+                        .orderByAsc(ExternalLink::getSortOrder)
+                        .orderByAsc(ExternalLink::getId)
+        ).forEach(externalLink -> result.computeIfAbsent(externalLink.getTargetId(), key -> new ArrayList<>())
+                .add(ExternalLinkVO.builder()
+                        .title(externalLink.getTitle())
+                        .url(externalLink.getUrl())
+                        .sortOrder(externalLink.getSortOrder())
+                        .build()));
+        return result;
+    }
+
+    /**
+     * 5.16 批量查询动画个人评分。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画个人评分映射
+     */
+    private Map<Long, BigDecimal> buildPageRatingMap(List<Long> animeIds) {
+        return personalRatingMapper.selectList(
+                        new LambdaQueryWrapper<PersonalRating>()
+                                .eq(PersonalRating::getTargetType, "ANIME")
+                                .in(PersonalRating::getTargetId, animeIds)
+                )
+                .stream()
+                .collect(Collectors.toMap(
+                        PersonalRating::getTargetId,
+                        PersonalRating::getScore,
+                        (first, second) -> first,
+                        LinkedHashMap::new
+                ));
+    }
+
+    /**
+     * 5.17 批量查询动画所属系列。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 动画所属系列映射
+     */
+    private Map<Long, SeriesVO> buildPageSeriesMap(List<Long> animeIds) {
+        List<SeriesItem> seriesItems = seriesItemMapper.selectList(
+                new LambdaQueryWrapper<SeriesItem>()
+                        .eq(SeriesItem::getWorkType, "anime")
+                        .in(SeriesItem::getWorkId, animeIds)
+                        .orderByAsc(SeriesItem::getSortOrder)
+                        .orderByAsc(SeriesItem::getId)
+        );
+        Set<Long> seriesIds = seriesItems.stream()
+                .map(SeriesItem::getSeriesId)
+                .collect(Collectors.toSet());
+        List<Series> seriesList = seriesIds.isEmpty() ? List.of() : seriesMapper.selectByIds(seriesIds);
+        Map<Long, Series> seriesEntityMap = buildEntityMap(seriesList, Series::getId);
+        Map<Long, SeriesVO> result = new HashMap<>();
+        seriesItems.forEach(seriesItem -> {
+            Series series = seriesEntityMap.get(seriesItem.getSeriesId());
+            if (series != null) {
+                result.putIfAbsent(
+                        seriesItem.getWorkId(),
+                        SeriesVO.builder()
+                                .id(series.getId())
+                                .name(series.getName())
+                                .description(series.getDescription())
+                                .build()
+                );
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 5.18 构建放送类型信息。
+     *
+     * @param broadcastType 放送类型实体
+     * @return 放送类型信息
+     */
+    private BroadcastTypeVO buildBroadcastTypeVO(BroadcastType broadcastType) {
+        if (broadcastType == null) {
+            return null;
+        }
+        return BroadcastTypeVO.builder()
+                .id(broadcastType.getId())
+                .name(broadcastType.getName())
+                .build();
+    }
+
+    /**
+     * 5.19 构建改编类型信息。
+     *
+     * @param adaptationType 改编类型实体
+     * @return 改编类型信息
+     */
+    private AdaptationTypeVO buildAdaptationTypeVO(AdaptationType adaptationType) {
+        if (adaptationType == null) {
+            return null;
+        }
+        return AdaptationTypeVO.builder()
+                .id(adaptationType.getId())
+                .name(adaptationType.getName())
+                .build();
+    }
+
+    /**
+     * 5.20 构建地区信息。
+     *
+     * @param region 地区实体
+     * @return 地区信息
+     */
+    private RegionVO buildRegionVO(Region region) {
+        if (region == null) {
+            return null;
+        }
+        return RegionVO.builder()
+                .id(region.getId())
+                .name(region.getName())
+                .build();
+    }
+
+    /**
+     * 5.21 根据实体 ID 构建映射。
+     *
+     * @param entities 实体列表
+     * @param idGetter ID 获取方法
+     * @return 实体映射
+     * @param <T> 实体类型
+     */
+    private <T> Map<Long, T> buildEntityMap(List<T> entities, Function<T, Long> idGetter) {
+        return entities.stream().collect(Collectors.toMap(
+                idGetter,
+                Function.identity(),
+                (first, second) -> first,
+                LinkedHashMap::new
+        ));
+    }
+
+    /**
+     * 放送日期范围。
+     *
+     * @param startDate 开始日期
+     * @param endDate 结束日期
+     */
+    private record BroadcastDateRange(LocalDate startDate, LocalDate endDate) {
     }
 
 

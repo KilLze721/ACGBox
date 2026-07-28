@@ -145,7 +145,10 @@ public class CompanyServiceImpl implements CompanyService {
         // 返回结果
         List<CompanyVO> rows = result.getRecords().stream().map(this::buildCompanyVO).toList();
         return PageVO.<CompanyVO>builder()
+                .pageNum(result.getCurrent())
+                .pageSize(result.getSize())
                 .total(result.getTotal())
+                .pages(result.getPages())
                 .rows(rows)
                 .build();
     }

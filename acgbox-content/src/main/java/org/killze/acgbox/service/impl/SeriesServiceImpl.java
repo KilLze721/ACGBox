@@ -144,7 +144,10 @@ public class SeriesServiceImpl implements SeriesService {
         List<SeriesVO> rows = result.getRecords().stream().map(this::buildSeriesVO).toList();
         // 返回结果
         return PageVO.<SeriesVO>builder()
+                .pageNum(result.getCurrent())
+                .pageSize(result.getSize())
                 .total(result.getTotal())
+                .pages(result.getPages())
                 .rows(rows)
                 .build();
     }

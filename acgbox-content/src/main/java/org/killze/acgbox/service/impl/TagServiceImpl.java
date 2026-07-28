@@ -155,7 +155,10 @@ public class TagServiceImpl implements TagService {
                 .build()).toList();
         // 返回结果
         return PageVO.<TagVO>builder()
+                .pageNum(result.getCurrent())
+                .pageSize(result.getSize())
                 .total(result.getTotal())
+                .pages(result.getPages())
                 .rows(rows)
                 .build();
     }
