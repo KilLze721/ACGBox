@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.killze.acgbox.mapper.AnimeMapper">
+
+    <select id="selectAnimePage" resultType="org.killze.acgbox.entity.content.Anime">
+        <bind name="tagCount" value="pageDTO.tagIds == null ? 0 : pageDTO.tagIds.size()"/>
+        SELECT
+            a.id,
+            a.name,
+            a.episode_count,
+            a.broadcast_type_id,
+            a.adaptation_type_id,
+            a.region_id,
+            a.air_date,
+            a.cover_image_url,
+            a.status,
+            a.created_at,
+            a.updated_at
+        FROM anime a
+        LEFT JOIN personal_rating pr
+          ON pr.target_type = 'ANIME'
+         AND pr.target_id = a.id
+        <where>
+            <if test="pageDTO.keyword != null">
+                AND (
+                    LOWER(a.name) LIKE '%' || LOWER(#{pageDTO.keyword}) || '%'
+                    OR EXISTS (
+                        SELECT 1
+                        FROM alias al
+                        WHERE al.target_type = 'ANIME'
+                          AND al.target_id = a.id
+                          AND LOWER(al.alias_name) LIKE '%' || LOWER(#{pageDTO.keyword}) || '%'
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM series_item si
+                        INNER JOIN series s ON s.id = si.series_id
+                        WHERE si.work_type = 'anime'
+                          AND si.work_id = a.id
+                          AND LOWER(s.name) LIKE '%' || LOWER(#{pageDTO.keyword}) || '%'
+                    )
+                )
+            </if>
+            <if test="pageDTO.tagIds != null and !pageDTO.tagIds.isEmpty()">
+                <choose>
+                    <when test="pageDTO.tagMatchMode == 'ANY'">
+                        AND EXISTS (
+                            SELECT 1
+                            FROM tag_relation tr
+                            WHERE tr.target_type = 'ANIME'
+                              AND tr.target_id = a.id
+                              AND tr.tag_id IN
+                              <foreach collection="pageDTO.tagIds" item="tagId" open="(" separator="," close=")">
+                                  #{tagId}
+                              </foreach>
+                        )
+                    </when>
+                    <otherwise>
+                        AND (
+                            SELECT COUNT(DISTINCT tr.tag_id)
+                            FROM tag_relation tr
+                            WHERE tr.target_type = 'ANIME'
+                              AND tr.target_id = a.id
+                              AND tr.tag_id IN
+                              <foreach collection="pageDTO.tagIds" item="tagId" open="(" separator="," close=")">
+                                  #{tagId}
+                              </foreach>
+                        ) = #{tagCount}
+                    </otherwise>
+                </choose>
+            </if>
+            <if test="pageDTO.broadcastTypeId != null">
+                AND a.broadcast_type_id = #{pageDTO.broadcastTypeId}
+            </if>
+            <if test="pageDTO.adaptationTypeId != null">
+                AND a.adaptation_type_id = #{pageDTO.adaptationTypeId}
+            </if>
+            <if test="startDate != null">
+                AND a.air_date &gt;= #{startDate}
+            </if>
+            <if test="endDate != null">
+                AND a.air_date &lt;= #{endDate}
+            </if>
+            <if test="pageDTO.status != null">
+                AND a.status = #{pageDTO.status}
+            </if>
+            <if test="pageDTO.regionId != null">
+                AND a.region_id = #{pageDTO.regionId}
+            </if>
+            <if test="pageDTO.companyId != null">
+                AND EXISTS (
+                    SELECT 1
+                    FROM company_relation cr
+                    WHERE cr.target_type = 'ANIME'
+                      AND cr.target_id = a.id
+                      AND cr.company_id = #{pageDTO.companyId}
+                )
+            </if>
+            <if test="pageDTO.ratingMin != null">
+                AND pr.score &gt;= #{pageDTO.ratingMin}
+            </if>
+            <if test="pageDTO.ratingMax != null">
+                AND pr.score &lt;= #{pageDTO.ratingMax}
+            </if>
+        </where>
+        ORDER BY
+        <choose>
+            <when test="pageDTO.sortBy == 'PERSONAL_RATING'">
+                pr.score
+            </when>
+            <otherwise>
+                a.air_date
+            </otherwise>
+        </choose>
+        <choose>
+            <when test="pageDTO.sortDirection == 'ASC'">
+                ASC
+            </when>
+            <otherwise>
+                DESC
+            </otherwise>
+        </choose>
+        NULLS LAST,
+        a.id DESC
+    </select>
+
+</mapper>
