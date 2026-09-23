@@ -128,6 +128,7 @@ public class AnimeServiceImpl implements AnimeService {
                 .airDate(animeDTO.getAirDate())
                 .coverImageUrl(animeDTO.getCoverImageUrl())
                 .status(animeDTO.getStatus())
+                .description(animeDTO.getDescription())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -223,6 +224,7 @@ public class AnimeServiceImpl implements AnimeService {
                 .airDate(anime.getAirDate())
                 .coverImageUrl(anime.getCoverImageUrl())
                 .status(anime.getStatus())
+                .description(anime.getDescription())
                 .aliasNames(aliasNames)
                 .companies(buildCompanyRelationVOList(companies))
                 .externalLinks(buildExternalLinkVOList(externalLinks))
@@ -365,6 +367,7 @@ public class AnimeServiceImpl implements AnimeService {
                 .airDate(anime.getAirDate())
                 .coverImageUrl(anime.getCoverImageUrl())
                 .status(anime.getStatus())
+                .description(anime.getDescription())
                 .aliasNames(aliasNames)
                 .companies(companies)
                 .externalLinks(externalLinks)
@@ -538,6 +541,7 @@ public class AnimeServiceImpl implements AnimeService {
                         .set(Anime::getAirDate, animeDTO.getAirDate())
                         .set(Anime::getCoverImageUrl, animeDTO.getCoverImageUrl())
                         .set(Anime::getStatus, animeDTO.getStatus())
+                        .set(Anime::getDescription, animeDTO.getDescription())
                         .set(Anime::getUpdatedAt, LocalDateTime.now())
         );
         // 使用前端提交的最终数据覆盖动画关联信息。

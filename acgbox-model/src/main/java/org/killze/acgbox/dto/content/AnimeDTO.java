@@ -70,6 +70,11 @@ public class AnimeDTO {
     private Long status;
 
     /**
+     * 动画简介
+     */
+    private String description;
+
+    /**
      * 动画别名列表
      */
     private List<String> aliasNames;

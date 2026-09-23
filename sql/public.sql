@@ -12,7 +12,7 @@
  Target Server Version : 180001 (180001)
  File Encoding         : 65001
 
- Date: 12/07/2026 23:36:59
+ Date: 23/09/2026 17:21:13
 */
 
 
@@ -207,6 +207,7 @@ CREATE TABLE "public"."anime" (
   "cover_image_url" varchar(500) COLLATE "pg_catalog"."default",
   "status" int4 NOT NULL,
   "region_id" int4 NOT NULL,
+  "description" text COLLATE "pg_catalog"."default",
   "created_at" timestamp(6) NOT NULL DEFAULT now(),
   "updated_at" timestamp(6) NOT NULL DEFAULT now()
 )
@@ -220,6 +221,7 @@ COMMENT ON COLUMN "public"."anime"."air_date" IS '动画放送日期';
 COMMENT ON COLUMN "public"."anime"."cover_image_url" IS '动画封面图片URL';
 COMMENT ON COLUMN "public"."anime"."status" IS '动画放送状态，1: 未放送 2: 放送中 3: 已完结 4: 其他';
 COMMENT ON COLUMN "public"."anime"."region_id" IS '动画地区，关联region表';
+COMMENT ON COLUMN "public"."anime"."description" IS '动画简介';
 COMMENT ON COLUMN "public"."anime"."created_at" IS '记录创建时间';
 COMMENT ON COLUMN "public"."anime"."updated_at" IS '记录最后更新时间';
 COMMENT ON TABLE "public"."anime" IS '动画表：存储动画的基本信息';
@@ -415,91 +417,91 @@ COMMENT ON TABLE "public"."tag_relation" IS '通用标签关联表：记录动�
 -- ----------------------------
 ALTER SEQUENCE "public"."adaptation_type_id_seq"
 OWNED BY "public"."adaptation_type"."id";
-SELECT setval('"public"."adaptation_type_id_seq"', 4, true);
+SELECT setval('"public"."adaptation_type_id_seq"', 33, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."alias_id_seq"
 OWNED BY "public"."alias"."id";
-SELECT setval('"public"."alias_id_seq"', 9, true);
+SELECT setval('"public"."alias_id_seq"', 111, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."anime_id_seq"
 OWNED BY "public"."anime"."id";
-SELECT setval('"public"."anime_id_seq"', 16, true);
+SELECT setval('"public"."anime_id_seq"', 163, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."broadcast_type_id_seq"
 OWNED BY "public"."broadcast_type"."id";
-SELECT setval('"public"."broadcast_type_id_seq"', 4, true);
+SELECT setval('"public"."broadcast_type_id_seq"', 33, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_id_seq"
 OWNED BY "public"."company"."id";
-SELECT setval('"public"."company_id_seq"', 5, true);
+SELECT setval('"public"."company_id_seq"', 63, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_relation_id_seq"
 OWNED BY "public"."company_relation"."id";
-SELECT setval('"public"."company_relation_id_seq"', 11, true);
+SELECT setval('"public"."company_relation_id_seq"', 84, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."external_link_id_seq"
 OWNED BY "public"."external_link"."id";
-SELECT setval('"public"."external_link_id_seq"', 16, true);
+SELECT setval('"public"."external_link_id_seq"', 74, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."personal_rating_id_seq"
 OWNED BY "public"."personal_rating"."id";
-SELECT setval('"public"."personal_rating_id_seq"', 2, true);
+SELECT setval('"public"."personal_rating_id_seq"', 121, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."region_id_seq"
 OWNED BY "public"."region"."id";
-SELECT setval('"public"."region_id_seq"', 5, true);
+SELECT setval('"public"."region_id_seq"', 34, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."series_id_seq"
 OWNED BY "public"."series"."id";
-SELECT setval('"public"."series_id_seq"', 7, true);
+SELECT setval('"public"."series_id_seq"', 65, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."series_item_id_seq"
 OWNED BY "public"."series_item"."id";
-SELECT setval('"public"."series_item_id_seq"', 6, true);
+SELECT setval('"public"."series_item_id_seq"', 79, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_id_seq"
 OWNED BY "public"."tag"."id";
-SELECT setval('"public"."tag_id_seq"', 23, true);
+SELECT setval('"public"."tag_id_seq"', 110, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_relation_id_seq"
 OWNED BY "public"."tag_relation"."id";
-SELECT setval('"public"."tag_relation_id_seq"', 42, true);
+SELECT setval('"public"."tag_relation_id_seq"', 277, true);
 
 -- ----------------------------
 -- Uniques structure for table adaptation_type
