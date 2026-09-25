@@ -131,12 +131,12 @@ public class CompanyServiceImpl implements CompanyService {
     public PageVO<CompanyVO> pageCompany(CompanyPageDTO pageDTO) {
         // 创建分页对象
         Page<Company> page = new Page<>(pageDTO.getPageNum(), pageDTO.getPageSize());
-        // 模糊名称查询
+        // 忽略字母大小写的模糊名称查询
         LambdaQueryWrapper<Company> wrapper = new LambdaQueryWrapper<>();
-        wrapper.like(
+        wrapper.apply(
                 // 判断名称是否为空
                 StringUtils.hasText(pageDTO.getName()),
-                Company::getName,
+                "name ILIKE '%' || {0} || '%'",
                 pageDTO.getName()
         );
         wrapper.orderByDesc(Company::getUpdatedAt);

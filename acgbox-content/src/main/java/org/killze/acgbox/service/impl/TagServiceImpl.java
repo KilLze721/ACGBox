@@ -138,12 +138,12 @@ public class TagServiceImpl implements TagService {
     public PageVO<TagVO> pageTag(TagPageDTO pageDTO) {
         // 创建分页对象
         Page<Tag> page = new Page<>(pageDTO.getPageNum(), pageDTO.getPageSize());
-        // 模糊名称查询
+        // 忽略字母大小写的模糊名称查询
         LambdaQueryWrapper<Tag> wrapper = new LambdaQueryWrapper<>();
-        wrapper.like(
+        wrapper.apply(
                 // 判断名称是否为空
                 StringUtils.hasText(pageDTO.getName()),
-                Tag::getName,
+                "name ILIKE '%' || {0} || '%'",
                 pageDTO.getName()
         );
         // 分页查询

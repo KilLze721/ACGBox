@@ -129,12 +129,12 @@ public class SeriesServiceImpl implements SeriesService {
     public PageVO<SeriesVO> pageSeries(SeriesPageDTO pageDTO) {
         // 创建分页对象
         Page<Series> page = new Page<>(pageDTO.getPageNum(), pageDTO.getPageSize());
-        // 模糊名称查询
+        // 忽略字母大小写的模糊名称查询
         LambdaQueryWrapper<Series> wrapper = new LambdaQueryWrapper<>();
-        wrapper.like(
+        wrapper.apply(
                 // 判断名称是否为空
                 StringUtils.hasText(pageDTO.getName()),
-                Series::getName,
+                "name ILIKE '%' || {0} || '%'",
                 pageDTO.getName()
         );
         wrapper.orderByDesc(Series::getUpdatedAt);
