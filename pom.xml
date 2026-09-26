@@ -21,6 +21,7 @@
     <modules>
         <module>acgbox-model</module>
         <module>acgbox-common</module>
+        <module>acgbox-user</module>
         <module>acgbox-content</module>
     </modules>
 
@@ -46,6 +47,11 @@
             <dependency>
                 <groupId>org.killze</groupId>
                 <artifactId>acgbox-common</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.killze</groupId>
+                <artifactId>acgbox-user</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
