@@ -13,6 +13,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize.anyRequest().authenticated());
         http.formLogin(Customizer.withDefaults());
+        http.csrf(csrf -> csrf.spa());
         return http.build();
     }
 }
