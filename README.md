@@ -19,7 +19,7 @@ ACGBox 是一个 ACG 内容后台管理系统，用于管理动画、漫画、�
 
 ```
 ACGBox/
-├── acgbox-model/                # 数据模型（被 common 和 content 依赖）
+├── acgbox-model/                # 数据模型
 │   ├── entity/content/          # MyBatis Plus 实体，映射数据库表
 │   ├── dto/content/             # 请求体 DTO（含 @Valid 校验注解）
 │   ├── dto/common/              # 通用 DTO（分页 PageDTO）
@@ -28,15 +28,20 @@ ACGBox/
 │   ├── config/MybatisPlusConfig # MyBatis Plus 分页插件配置（PostgreSQL）
 │   ├── exception/               # BusinessException + GlobalExceptionHandler
 │   └── result/                  # Result<T> 统一响应 + ResultCode 枚举
-├── acgbox-content/              # 主应用（Spring Boot 入口，端口 8080）
+├── acgbox-user/                 # 用户与安全模块
+│   └── config/SecurityConfig    # 后台接口访问规则
+├── acgbox-content/              # 内容业务模块
 │   ├── controller/              # REST 控制器
 │   ├── service/ + service/impl/ # 服务层
 │   ├── mapper/                  # MyBatis Plus Mapper 接口
 │   └── resources/mapper/        # 复杂查询的自定义 SQL XML
+├── acgbox-app/                  # 启动模块（Spring Boot 入口，端口 8080）
+│   ├── AcgBoxApplication        # 唯一启动类
+│   └── resources/application.yml # 数据源与 MyBatis Plus 配置
 └── sql/public.sql               # 数据库建表脚本
 ```
 
-**依赖方向**：`common` → `model` ← `content`，`content` 也依赖 `common`。
+**依赖方向**：`app` 依赖 `content` 和 `user`；`content` 与 `user` 均依赖 `model` 和 `common`；`common` 依赖 `model`。
 
 ## 环境要求
 
@@ -58,7 +63,7 @@ psql -U postgres -d acgbox -f sql/public.sql
 
 ### 2. 配置数据源
 
-编辑 `acgbox-content/src/main/resources/application.yml`，按需修改数据库连接信息：
+编辑 `acgbox-app/src/main/resources/application.yml`，按需修改数据库连接信息：
 
 ```yaml
 spring:
@@ -77,17 +82,18 @@ mvn clean compile
 ### 4. 启动
 
 ```bash
-# 从 ACGBox 根目录启动（监听 8080 端口）
-mvn spring-boot:run -pl acgbox-content
+# 从 ACGBox 根目录构建并启动（监听 8080 端口）
+mvn -pl acgbox-app -am -DskipTests package
+java -jar acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar
 ```
 
 ### 5. 验证
 
 ```bash
-curl http://localhost:8080/adaptation-type/list
+curl -i http://localhost:8080/adaptation-type/list
 ```
 
-返回 `{"code":200,"message":"操作成功","data":[...]}` 即启动成功。
+未登录时应跳转到登录页；当前尚未接入数据库账号认证，不能使用 `user_account` 中的账号登录。
 
 ## 构建命令
 
@@ -98,8 +104,9 @@ mvn clean compile
 # 运行测试
 mvn test
 
-# 启动（监听 8080 端口）
-mvn spring-boot:run -pl acgbox-content
+# 打包并启动（监听 8080 端口）
+mvn -pl acgbox-app -am -DskipTests package
+java -jar acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar
 
 # 打包（跳过测试）
 mvn clean package -DskipTests
@@ -157,7 +164,7 @@ mvn clean package -DskipTests
 
 - ✅ 字典类 CRUD：改编类型、放送类型、地区、标签、公司、系列
 - ✅ 核心业务：动画 CRUD（创建 / 修改 / 批量删除 / 详情 / 条件分页查询，含别名、标签、公司、外链、系列、个人评分等关联）
-- ❌ 认证 / 授权：尚未实现（`ResultCode` 预留了 401/403）
+- ⚠️ 认证 / 授权：已引入 Spring Security 并要求后台接口登录，数据库账号认证与角色权限尚未实现（`ResultCode` 预留了 401/403）
 - ❌ 社区评分系统：尚未实现（计划用 Redis；个人评分已实现）
 
 ## 相关文档
