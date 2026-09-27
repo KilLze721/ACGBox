@@ -1,6 +1,7 @@
 package org.killze.acgbox.entity.content;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -35,6 +36,7 @@ public class Company {
     /**
      * 公司简介。
      */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String description;
 
     /**
