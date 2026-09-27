@@ -98,8 +98,6 @@ public class CompanyServiceImpl implements CompanyService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的公司");
         }
-        // TODO 判断公司是否被作品引用
-
         // 删除公司
         companyMapper.deleteByIds(ids);
     }

@@ -2,12 +2,15 @@ package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.killze.acgbox.dto.content.RegionDTO;
+import org.killze.acgbox.entity.content.Anime;
 import org.killze.acgbox.entity.content.Region;
 import org.killze.acgbox.exception.BusinessException;
+import org.killze.acgbox.mapper.AnimeMapper;
 import org.killze.acgbox.mapper.RegionMapper;
 import org.killze.acgbox.service.RegionService;
 import org.killze.acgbox.vo.content.RegionVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -23,6 +26,9 @@ public class RegionServiceImpl implements RegionService {
 
     @Autowired
     private RegionMapper regionMapper;
+
+    @Autowired
+    private AnimeMapper animeMapper;
 
     /**
      * 创建地区
@@ -98,10 +104,18 @@ public class RegionServiceImpl implements RegionService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的地区");
         }
-        // TODO 判断地区是否被作品引用
-
+        // 判断地区是否被动画引用
+        String message = "所选地区已被动画引用，不能删除";
+        if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
+                .in(Anime::getRegionId, ids)) > 0) {
+            throw new BusinessException(message);
+        }
         // 删除地区
-        regionMapper.deleteByIds(ids);
+        try {
+            regionMapper.deleteByIds(ids);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(message);
+        }
     }
 
     /**

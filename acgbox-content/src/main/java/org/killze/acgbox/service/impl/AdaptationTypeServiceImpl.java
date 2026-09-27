@@ -3,11 +3,14 @@ package org.killze.acgbox.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.killze.acgbox.dto.content.AdaptationTypeDTO;
 import org.killze.acgbox.entity.content.AdaptationType;
+import org.killze.acgbox.entity.content.Anime;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.AdaptationTypeMapper;
+import org.killze.acgbox.mapper.AnimeMapper;
 import org.killze.acgbox.service.AdaptationTypeService;
 import org.killze.acgbox.vo.content.AdaptationTypeVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -23,6 +26,9 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
 
     @Autowired
     private AdaptationTypeMapper adaptationTypeMapper;
+
+    @Autowired
+    private AnimeMapper animeMapper;
 
     /**
      * 创建改编类型
@@ -98,10 +104,18 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的改编类型");
         }
-        // TODO 判断改编类型是否被作品引用
-
+        // 判断改编类型是否被动画引用
+        String message = "所选改编类型已被动画引用，不能删除";
+        if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
+                .in(Anime::getAdaptationTypeId, ids)) > 0) {
+            throw new BusinessException(message);
+        }
         // 删除改编类型
-        adaptationTypeMapper.deleteByIds(ids);
+        try {
+            adaptationTypeMapper.deleteByIds(ids);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(message);
+        }
     }
 
     /**

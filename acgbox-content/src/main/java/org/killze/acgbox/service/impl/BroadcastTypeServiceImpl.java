@@ -2,12 +2,15 @@ package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.killze.acgbox.dto.content.BroadcastTypeDTO;
+import org.killze.acgbox.entity.content.Anime;
 import org.killze.acgbox.entity.content.BroadcastType;
 import org.killze.acgbox.exception.BusinessException;
+import org.killze.acgbox.mapper.AnimeMapper;
 import org.killze.acgbox.mapper.BroadcastTypeMapper;
 import org.killze.acgbox.service.BroadcastTypeService;
 import org.killze.acgbox.vo.content.BroadcastTypeVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -23,6 +26,9 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
 
     @Autowired
     private BroadcastTypeMapper broadcastTypeMapper;
+
+    @Autowired
+    private AnimeMapper animeMapper;
 
     /**
      * 创建放送类型
@@ -98,10 +104,18 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的放送类型");
         }
-        // TODO 判断放送类型是否被作品引用
-
+        // 判断放送类型是否被动画引用
+        String message = "所选放送类型已被动画引用，不能删除";
+        if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
+                .in(Anime::getBroadcastTypeId, ids)) > 0) {
+            throw new BusinessException(message);
+        }
         // 删除放送类型
-        broadcastTypeMapper.deleteByIds(ids);
+        try {
+            broadcastTypeMapper.deleteByIds(ids);
+        } catch (DataIntegrityViolationException e) {
+            throw new BusinessException(message);
+        }
     }
 
     /**

@@ -102,8 +102,6 @@ public class TagServiceImpl implements TagService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的标签");
         }
-        // TODO 判断标签是否被作品引用
-
         // 删除标签
         tagMapper.deleteByIds(ids);
     }
