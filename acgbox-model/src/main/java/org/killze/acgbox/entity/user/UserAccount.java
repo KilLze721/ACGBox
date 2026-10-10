@@ -43,10 +43,6 @@ public class UserAccount {
     @TableField("password_hash")
     private String passwordHash;
 
-    /**
-     * 展示昵称。
-     */
-    private String nickname;
 
     /**
      * 账号角色：ADMIN、EDITOR、USER。

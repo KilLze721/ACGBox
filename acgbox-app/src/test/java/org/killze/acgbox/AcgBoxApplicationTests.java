@@ -1,6 +1,5 @@
 package org.killze.acgbox;
 
-import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -8,7 +7,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -32,19 +30,9 @@ class AcgBoxApplicationTests {
     }
 
     @Test
-    void authenticatedPostRequiresCsrfToken() throws Exception {
-        mockMvc.perform(post("/anime/create").with(user("admin")))
-                .andExpect(status().isForbidden());
-
-        Cookie csrfCookie = mockMvc.perform(get("/login"))
-                .andExpect(status().isOk())
-                .andReturn().getResponse().getCookie("XSRF-TOKEN");
-        assertNotNull(csrfCookie);
-
+    void authenticatedPostDoesNotRequireCsrfToken() throws Exception {
         mockMvc.perform(post("/anime/create")
                         .with(user("admin"))
-                        .cookie(csrfCookie)
-                        .header("X-XSRF-TOKEN", csrfCookie.getValue())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk());
