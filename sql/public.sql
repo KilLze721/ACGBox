@@ -12,7 +12,7 @@
  Target Server Version : 180001 (180001)
  File Encoding         : 65001
 
- Date: 30/09/2026 19:54:15
+ Date: 14/10/2026 00:54:24
 */
 
 
@@ -552,7 +552,7 @@ SELECT setval('"public"."tag_relation_id_seq"', 553, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."user_account_id_seq"
 OWNED BY "public"."user_account"."id";
-SELECT setval('"public"."user_account_id_seq"', 1, false);
+SELECT setval('"public"."user_account_id_seq"', 1, true);
 
 -- ----------------------------
 -- Uniques structure for table adaptation_type
@@ -775,7 +775,7 @@ ALTER TABLE "public"."tag_relation" ADD CONSTRAINT "tag_relation_pkey" PRIMARY K
 -- Indexes structure for table user_account
 -- ----------------------------
 CREATE UNIQUE INDEX "uk_user_account_email_lower" ON "public"."user_account" USING btree (
-  lower(email::text) COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+  "email" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
 );
 CREATE UNIQUE INDEX "uk_user_account_username_lower" ON "public"."user_account" USING btree (
   lower(username::text) COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
