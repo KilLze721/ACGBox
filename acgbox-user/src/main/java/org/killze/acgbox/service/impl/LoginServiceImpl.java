@@ -86,7 +86,8 @@ public class LoginServiceImpl implements LoginService {
         if (!Boolean.TRUE.equals(userAccount.getEnabled())) {
             throw new BusinessException("此账号已被禁用");
         }
-        if (!"ADMIN".equals(userAccount.getRole())) {
+        if (!"ADMIN".equals(userAccount.getRole())
+                && !"EDITOR".equals(userAccount.getRole())) {
             throw new BusinessException("此账号无管理端登录权限");
         }
         return userAccount;

@@ -13,6 +13,8 @@ import org.killze.acgbox.dto.user.LoginDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
+import org.killze.acgbox.service.JwtService;
+import org.killze.acgbox.vo.user.LoginVO;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +35,7 @@ class LoginServiceImplTests {
 
     private LoginServiceImpl loginService;
     private UserAccountMapper userAccountMapper;
+    private JwtService jwtService;
     private UserAccount userAccount;
     private LoginDTO loginDTO;
 
@@ -42,10 +46,13 @@ class LoginServiceImplTests {
                 new MapperBuilderAssistant(new MybatisConfiguration(), ""), UserAccount.class
         );
         userAccountMapper = mock(UserAccountMapper.class);
+        jwtService = mock(JwtService.class);
         BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder(4);
         loginService = new LoginServiceImpl();
         ReflectionTestUtils.setField(loginService, "userAccountMapper", userAccountMapper);
         ReflectionTestUtils.setField(loginService, "passwordEncoder", passwordEncoder);
+        ReflectionTestUtils.setField(loginService, "jwtService", jwtService);
+        ReflectionTestUtils.setField(loginService, "expiration", 7200L);
 
         userAccount = UserAccount.builder()
                 .id(1L)
@@ -56,6 +63,7 @@ class LoginServiceImplTests {
                 .enabled(true)
                 .build();
         when(userAccountMapper.selectOne(any())).thenReturn(userAccount);
+        when(jwtService.createToken(userAccount)).thenReturn("test-token");
 
         loginDTO = new LoginDTO();
         loginDTO.setUsername("admin");
@@ -114,6 +122,33 @@ class LoginServiceImplTests {
         loginDTO.setEmail(null);
 
         assertSame(userAccount, loginService.verifyByUsername(loginDTO));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR"})
+    void shouldAllowManagementRolesToLoginByUsername(String role) {
+        userAccount.setRole(role);
+
+        LoginVO loginVO = loginService.loginByUsername(loginDTO);
+
+        assertEquals(userAccount.getId(), loginVO.getId());
+        assertEquals(userAccount.getUsername(), loginVO.getUsername());
+        assertEquals(role, loginVO.getRole());
+        assertEquals("test-token", loginVO.getToken());
+        assertEquals(7200L, loginVO.getExpiresIn());
+        verify(jwtService).createToken(userAccount);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR"})
+    void shouldAllowManagementRolesToLoginByEmail(String role) {
+        userAccount.setRole(role);
+
+        LoginVO loginVO = loginService.loginByEmail(loginDTO);
+
+        assertEquals(role, loginVO.getRole());
+        assertEquals("test-token", loginVO.getToken());
+        verify(jwtService).createToken(userAccount);
     }
 
     @ParameterizedTest
@@ -178,8 +213,34 @@ class LoginServiceImplTests {
         assertEquals("此账号已被禁用", exception.getMessage());
     }
 
+    @Test
+    void shouldRejectDisabledEditorAccount() {
+        userAccount.setRole("EDITOR");
+        userAccount.setEnabled(false);
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> loginService.loginByEmail(loginDTO)
+        );
+
+        assertEquals("此账号已被禁用", exception.getMessage());
+        verifyNoInteractions(jwtService);
+    }
+
+    @Test
+    void shouldRejectEditorLoginWithWrongPassword() {
+        userAccount.setRole("EDITOR");
+        loginDTO.setPassword("wrong");
+
+        BusinessException exception = assertThrows(
+                BusinessException.class, () -> loginService.loginByUsername(loginDTO)
+        );
+
+        assertEquals("账号或密码错误", exception.getMessage());
+        verifyNoInteractions(jwtService);
+    }
+
     @ParameterizedTest
-    @ValueSource(strings = {"USER", "EDITOR"})
+    @ValueSource(strings = "USER")
     void shouldRejectNonAdminAccount(String role) {
         userAccount.setRole(role);
 

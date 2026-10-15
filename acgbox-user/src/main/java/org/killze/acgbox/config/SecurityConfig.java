@@ -36,12 +36,12 @@ public class SecurityConfig {
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
         jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
 
-        // 登录入口允许匿名访问，其余接口只允许管理员访问。
+        // 登录入口允许匿名访问，其余接口允许管理员和编辑访问。
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.POST,
                         "/admin/login/username",
                         "/admin/login/email-password").permitAll()
-                .anyRequest().hasRole("ADMIN")
+                .anyRequest().hasAnyRole("ADMIN", "EDITOR")
         );
 
         // 关闭表单登录、HTTP Basic 和 CSRF，使用无状态认证。
