@@ -1,15 +1,14 @@
 package org.killze.acgbox.config;
 
+import org.killze.acgbox.mapper.UserAccountMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 /**
@@ -24,23 +23,23 @@ public class SecurityConfig {
      * 配置并注册安全过滤器链，在请求进入控制器前执行安全检查。
      *
      * @param http HTTP 安全配置对象
+     * @param userAccountMapper 用户账号数据访问接口
      * @return 安全过滤器链
      * @throws Exception 构建安全过滤器链时发生的异常
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
-        // 将 JWT 中的 role 字段转换为 Spring Security 角色权限。
-        JwtGrantedAuthoritiesConverter authoritiesConverter = new JwtGrantedAuthoritiesConverter();
-        authoritiesConverter.setAuthoritiesClaimName("role");
-        authoritiesConverter.setAuthorityPrefix("ROLE_");
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountMapper userAccountMapper) throws Exception {
+        // 根据数据库中的当前账号状态和角色生成权限，不使用 JWT 中的旧角色。
+        JwtAccountAuthoritiesConverter authoritiesConverter = new JwtAccountAuthoritiesConverter(userAccountMapper);
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
         jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);
 
-        // 登录入口允许匿名访问，其余接口允许管理员和编辑访问。
+        // 登录入口允许匿名访问，用户管理仅允许管理员，其余接口允许管理员和编辑。
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.POST,
                         "/admin/login/username",
                         "/admin/login/email-password").permitAll()
+                .requestMatchers("/admin/users/**").hasRole("ADMIN")
                 .anyRequest().hasAnyRole("ADMIN", "EDITOR")
         );
 

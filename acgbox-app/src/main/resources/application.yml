@@ -19,7 +19,7 @@ jwt:
   issuer: acgbox-admin
   audience: acgbox-admin
   # 令牌有效期，单位为秒
-  expiration: 7200
+  expiration: 86400
 
 # MyBatis-Plus ORM框架配置
 mybatis-plus:
