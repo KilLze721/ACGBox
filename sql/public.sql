@@ -12,7 +12,7 @@
  Target Server Version : 180001 (180001)
  File Encoding         : 65001
 
- Date: 14/10/2026 00:54:24
+ Date: 17/10/2026 09:44:09
 */
 
 
@@ -441,6 +441,7 @@ CACHE 1
   "role" varchar(20) COLLATE "pg_catalog"."default" NOT NULL,
   "enabled" bool NOT NULL DEFAULT true,
   "email_verified_at" timestamp(6),
+  "token_version" int8 NOT NULL DEFAULT 0,
   "created_at" timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" timestamp(6) NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
@@ -452,6 +453,7 @@ COMMENT ON COLUMN "public"."user_account"."password_hash" IS '密码哈希值，
 COMMENT ON COLUMN "public"."user_account"."role" IS '账号角色：ADMIN、EDITOR、USER';
 COMMENT ON COLUMN "public"."user_account"."enabled" IS '账号是否启用';
 COMMENT ON COLUMN "public"."user_account"."email_verified_at" IS '邮箱验证完成时间，未验证时为空';
+COMMENT ON COLUMN "public"."user_account"."token_version" IS '账号令牌版本号，修改密码、角色或强制下线时递增，用于使旧 JWT 失效';
 COMMENT ON COLUMN "public"."user_account"."created_at" IS '记录创建时间';
 COMMENT ON COLUMN "public"."user_account"."updated_at" IS '记录最后更新时间';
 COMMENT ON TABLE "public"."user_account" IS '用户账号表：存储管理员、编辑和普通用户的登录信息';
@@ -777,6 +779,10 @@ ALTER TABLE "public"."tag_relation" ADD CONSTRAINT "tag_relation_pkey" PRIMARY K
 CREATE UNIQUE INDEX "uk_user_account_email_lower" ON "public"."user_account" USING btree (
   "email" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
 );
+CREATE UNIQUE INDEX "uk_user_account_single_admin" ON "public"."user_account" USING btree (
+  "role" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
+) WHERE role::text = 'ADMIN'::text;
+COMMENT ON INDEX "public"."uk_user_account_single_admin" IS '限制最多存在一个 ADMIN 账号';
 CREATE UNIQUE INDEX "uk_user_account_username_lower" ON "public"."user_account" USING btree (
   lower(username::text) COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST
 );

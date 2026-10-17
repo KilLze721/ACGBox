@@ -58,6 +58,7 @@ class UserAccountServiceImplTests {
                 .passwordHash("must-not-be-returned")
                 .role("EDITOR")
                 .enabled(false)
+                .tokenVersion(0L)
                 .emailVerifiedAt(LocalDateTime.of(2026, 10, 1, 12, 0))
                 .createdAt(LocalDateTime.of(2026, 9, 1, 12, 0))
                 .updatedAt(LocalDateTime.of(2026, 10, 2, 12, 0))

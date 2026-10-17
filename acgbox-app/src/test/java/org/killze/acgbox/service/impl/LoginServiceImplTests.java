@@ -61,6 +61,7 @@ class LoginServiceImplTests {
                 .passwordHash(passwordEncoder.encode("123456"))
                 .role("ADMIN")
                 .enabled(true)
+                .tokenVersion(0L)
                 .build();
         when(userAccountMapper.selectOne(any())).thenReturn(userAccount);
         when(jwtService.createToken(userAccount)).thenReturn("test-token");

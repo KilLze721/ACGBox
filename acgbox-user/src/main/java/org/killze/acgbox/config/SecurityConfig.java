@@ -29,7 +29,7 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, UserAccountMapper userAccountMapper) throws Exception {
-        // 根据数据库中的当前账号状态和角色生成权限，不使用 JWT 中的旧角色。
+        // 校验数据库中的账号状态和令牌版本，再使用 JWT 中的角色生成权限。
         JwtAccountAuthoritiesConverter authoritiesConverter = new JwtAccountAuthoritiesConverter(userAccountMapper);
         JwtAuthenticationConverter jwtAuthenticationConverter = new JwtAuthenticationConverter();
         jwtAuthenticationConverter.setJwtGrantedAuthoritiesConverter(authoritiesConverter);

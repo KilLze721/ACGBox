@@ -1,8 +1,11 @@
 package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
+import org.killze.acgbox.dto.user.UserAccountDTO;
+import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
@@ -10,10 +13,16 @@ import org.killze.acgbox.service.UserAccountService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.user.UserAccountVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 用户账号服务实现类。
@@ -23,6 +32,9 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Autowired
     private UserAccountMapper userAccountMapper;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
 
     /**
      * 分页查询用户账号。
@@ -90,6 +102,152 @@ public class UserAccountServiceImpl implements UserAccountService {
             throw new BusinessException("此用户账号不存在");
         }
         return buildUserAccountVO(userAccount);
+    }
+
+    /**
+     * 修改用户账号，实际变更时递增令牌版本。
+     *
+     * @param userAccountDTO 用户账号信息
+     * @param operatorId 当前登录的管理员 ID
+     * @return 修改后的用户账号信息
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserAccountVO updateUserAccount(UserAccountDTO userAccountDTO, Long operatorId) {
+        UserAccount userAccount = getUserAccount(userAccountDTO.getId());
+        String username = userAccountDTO.getUsername().trim();
+        String email = StringUtils.hasText(userAccountDTO.getEmail()) ? userAccountDTO.getEmail().trim() : null;
+        String role = userAccountDTO.getRole();
+        Boolean enabled = userAccountDTO.getEnabled();
+
+        // 管理员只能保留原角色并保持启用，其他账号不能升级为管理员。
+        if ("ADMIN".equals(userAccount.getRole())) {
+            if (!"ADMIN".equals(role) || !Boolean.TRUE.equals(enabled)) {
+                throw new BusinessException("管理员不能降级或禁用");
+            }
+        } else if ("ADMIN".equals(role)) {
+            throw new BusinessException("不允许将其他账号修改为管理员");
+        }
+
+        boolean usernameChanged = !Objects.equals(userAccount.getUsername(), username);
+        boolean emailChanged = !Objects.equals(userAccount.getEmail(), email);
+        if (!usernameChanged && !emailChanged
+                && Objects.equals(userAccount.getRole(), role)
+                && Objects.equals(userAccount.getEnabled(), enabled)) {
+            return buildUserAccountVO(userAccount);
+        }
+        if (emailChanged) {
+            verifyAdminPassword(operatorId, userAccountDTO.getCurrentPassword());
+        }
+        if (usernameChanged && userAccountMapper.exists(new LambdaQueryWrapper<UserAccount>()
+                .ne(UserAccount::getId, userAccount.getId())
+                .apply("lower(username) = lower({0})", username))) {
+            throw new BusinessException("此登录用户名已存在");
+        }
+        if (emailChanged && email != null && userAccountMapper.exists(new LambdaQueryWrapper<UserAccount>()
+                .ne(UserAccount::getId, userAccount.getId())
+                .eq(UserAccount::getEmail, email))) {
+            throw new BusinessException("此邮箱已被使用");
+        }
+
+        LambdaUpdateWrapper<UserAccount> wrapper = new LambdaUpdateWrapper<UserAccount>()
+                .set(UserAccount::getUsername, username)
+                .set(UserAccount::getEmail, email)
+                .set(UserAccount::getRole, role)
+                .set(UserAccount::getEnabled, enabled)
+                .set(emailChanged, UserAccount::getEmailVerifiedAt, null);
+        updateAccountWithVersion(userAccount, wrapper);
+
+        userAccount.setUsername(username);
+        userAccount.setEmail(email);
+        userAccount.setRole(role);
+        userAccount.setEnabled(enabled);
+        if (emailChanged) {
+            userAccount.setEmailVerifiedAt(null);
+        }
+        return buildUserAccountVO(userAccount);
+    }
+
+    /**
+     * 验证管理员当前密码后重置目标账号密码。
+     *
+     * @param passwordDTO 密码重置信息
+     * @param operatorId 当前登录的管理员 ID
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void resetUserAccountPassword(UserAccountPasswordDTO passwordDTO, Long operatorId) {
+        UserAccount userAccount = getUserAccount(passwordDTO.getId());
+        verifyAdminPassword(operatorId, passwordDTO.getCurrentPassword());
+        String newPassword = passwordDTO.getNewPassword();
+        if (newPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new BusinessException("新密码不能超过 72 个 UTF-8 字节");
+        }
+        if (passwordEncoder.matches(newPassword, userAccount.getPasswordHash())) {
+            return;
+        }
+        updateAccountWithVersion(userAccount, new LambdaUpdateWrapper<UserAccount>()
+                .set(UserAccount::getPasswordHash, passwordEncoder.encode(newPassword)));
+    }
+
+    /**
+     * 查询需要修改的账号，包含版本校验和密码重置需要的字段。
+     *
+     * @param id 用户账号 ID
+     * @return 用户账号
+     */
+    private UserAccount getUserAccount(Long id) {
+        if (id == null || id < 1L) {
+            throw new BusinessException("用户账号 ID 必须大于等于 1");
+        }
+        UserAccount userAccount = userAccountMapper.selectById(id);
+        if (userAccount == null) {
+            throw new BusinessException("此用户账号不存在");
+        }
+        return userAccount;
+    }
+
+    /**
+     * 敏感操作重新验证操作者自己的管理员密码，不验证目标账号原密码。
+     *
+     * @param operatorId 当前登录的管理员 ID
+     * @param currentPassword 管理员当前密码
+     */
+    private void verifyAdminPassword(Long operatorId, String currentPassword) {
+        if (!StringUtils.hasText(currentPassword)) {
+            throw new BusinessException("管理员密码不能为空");
+        }
+        UserAccount operator = userAccountMapper.selectById(operatorId);
+        if (operator == null || !Boolean.TRUE.equals(operator.getEnabled()) || !"ADMIN".equals(operator.getRole())) {
+            throw new BusinessException("管理员身份已失效，请重新登录");
+        }
+        if (currentPassword.getBytes(StandardCharsets.UTF_8).length > 72
+                || !passwordEncoder.matches(currentPassword, operator.getPasswordHash())) {
+            throw new BusinessException("管理员密码错误");
+        }
+    }
+
+    /**
+     * 在同一条更新语句中保存修改并递增版本，版本冲突时要求刷新重试。
+     *
+     * @param userAccount 修改前的用户账号
+     * @param wrapper 需要更新的账号字段
+     */
+    private void updateAccountWithVersion(UserAccount userAccount, LambdaUpdateWrapper<UserAccount> wrapper) {
+        LocalDateTime now = LocalDateTime.now();
+        wrapper.eq(UserAccount::getId, userAccount.getId())
+                .eq(UserAccount::getTokenVersion, userAccount.getTokenVersion())
+                .set(UserAccount::getUpdatedAt, now)
+                .setSql("token_version = token_version + 1");
+        try {
+            if (userAccountMapper.update(null, wrapper) != 1) {
+                throw new BusinessException("账号信息已发生变化，请刷新后重试");
+            }
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException("登录用户名或邮箱已被使用");
+        }
+        userAccount.setTokenVersion(userAccount.getTokenVersion() + 1L);
+        userAccount.setUpdatedAt(now);
     }
 
     /**

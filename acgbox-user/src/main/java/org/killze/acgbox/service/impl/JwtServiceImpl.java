@@ -44,6 +44,7 @@ public class JwtServiceImpl implements JwtService {
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(expiration))
                 .claim("role", userAccount.getRole())
+                .claim("token_version", userAccount.getTokenVersion())
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims))

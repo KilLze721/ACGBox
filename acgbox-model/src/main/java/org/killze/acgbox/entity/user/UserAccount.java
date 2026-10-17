@@ -61,6 +61,12 @@ public class UserAccount {
     private LocalDateTime emailVerifiedAt;
 
     /**
+     * 账号令牌版本号，账号信息变化时递增，使旧 JWT 失效。
+     */
+    @TableField("token_version")
+    private Long tokenVersion;
+
+    /**
      * 记录创建时间。
      */
     @TableField("created_at")

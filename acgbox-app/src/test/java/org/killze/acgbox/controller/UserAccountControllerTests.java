@@ -10,6 +10,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.killze.acgbox.config.JwtConfig;
 import org.killze.acgbox.config.SecurityConfig;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
+import org.killze.acgbox.dto.user.UserAccountDTO;
+import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.exception.GlobalExceptionHandler;
@@ -22,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
@@ -45,11 +48,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -88,6 +93,7 @@ class UserAccountControllerTests {
                 .id(1L)
                 .role("ADMIN")
                 .enabled(true)
+                .tokenVersion(0L)
                 .build();
         when(userAccountMapper.selectOne(any())).thenReturn(currentUser);
 
@@ -102,6 +108,7 @@ class UserAccountControllerTests {
                 .updatedAt(LocalDateTime.of(2026, 10, 2, 12, 0))
                 .build();
         when(userAccountService.getUserAccountById(anyLong())).thenReturn(userAccountVO);
+        when(userAccountService.updateUserAccount(any(), anyLong())).thenReturn(userAccountVO);
         when(userAccountService.pageUserAccount(any())).thenReturn(PageVO.<UserAccountVO>builder()
                 .pageNum(1L)
                 .pageSize(20L)
@@ -234,8 +241,97 @@ class UserAccountControllerTests {
         verifyNoInteractions(userAccountService);
     }
 
+    @Test
+    void shouldBindUpdateAndUseOperatorIdFromJwtInsteadOfRequestBody() throws Exception {
+        mockMvc.perform(post("/admin/users/update")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2,"username":"EditorCase","email":"new@example.com",
+                                 "role":"EDITOR","enabled":true,"currentPassword":"admin-password","operatorId":999}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.currentPassword").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.data.tokenVersion").doesNotExist());
+
+        ArgumentCaptor<UserAccountDTO> captor = ArgumentCaptor.forClass(UserAccountDTO.class);
+        verify(userAccountService).updateUserAccount(captor.capture(), eq(1L));
+        assertEquals(2L, captor.getValue().getId());
+        assertEquals("admin-password", captor.getValue().getCurrentPassword());
+    }
+
+    @Test
+    void shouldBindPasswordResetWithoutReturningAnyPassword() throws Exception {
+        mockMvc.perform(post("/admin/users/reset-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2,"currentPassword":"admin-password","newPassword":"new-user-password"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.newPassword").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+
+        ArgumentCaptor<UserAccountPasswordDTO> captor = ArgumentCaptor.forClass(UserAccountPasswordDTO.class);
+        verify(userAccountService).resetUserAccountPassword(captor.capture(), eq(1L));
+        assertEquals("new-user-password", captor.getValue().getNewPassword());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EDITOR", "USER"})
+    void shouldRejectNonAdminOnBothMutationEndpoints(String role) throws Exception {
+        currentUser.setRole(role);
+        String token = createToken();
+        for (String path : List.of("/admin/users/update", "/admin/users/reset-password")) {
+            mockMvc.perform(post(path)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(userAccountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/users/update", "/admin/users/reset-password"})
+    void shouldRejectAnonymousMutationRequests(String path) throws Exception {
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(userAccountService);
+    }
+
+    @Test
+    void shouldRequireCurrentPasswordInResetRequest() throws Exception {
+        mockMvc.perform(post("/admin/users/reset-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2,"newPassword":"new-user-password"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("管理员密码不能为空"));
+        verifyNoInteractions(userAccountService);
+    }
+
+    @Test
+    void shouldRejectUnsupportedRoleBeforeCallingService() throws Exception {
+        mockMvc.perform(post("/admin/users/update")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2,"username":"EditorCase","role":"ROOT","enabled":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("账号角色仅支持 ADMIN、EDITOR、USER"));
+        verifyNoInteractions(userAccountService);
+    }
+
     /**
-     * 签发管理员令牌，实际权限仍由账号查询返回的当前角色决定。
+     * 签发带账号当前版本和角色的令牌。
      */
     private String createToken() {
         Instant now = Instant.now();
@@ -245,7 +341,8 @@ class UserAccountControllerTests {
                 .subject("1")
                 .issuedAt(now)
                 .expiresAt(now.plusSeconds(60))
-                .claim("role", "ADMIN")
+                .claim("role", currentUser.getRole())
+                .claim("token_version", currentUser.getTokenVersion())
                 .build();
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims)).getTokenValue();

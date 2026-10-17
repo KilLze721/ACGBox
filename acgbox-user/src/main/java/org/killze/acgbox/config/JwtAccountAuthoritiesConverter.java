@@ -13,7 +13,7 @@ import java.util.Collection;
 import java.util.List;
 
 /**
- * 根据账号当前状态和角色转换 JWT 权限，不使用令牌中的旧角色授权。
+ * 校验账号状态和令牌版本，使用版本校验通过的 JWT 角色授权。
  */
 public class JwtAccountAuthoritiesConverter implements Converter<Jwt, Collection<GrantedAuthority>> {
 
@@ -24,10 +24,10 @@ public class JwtAccountAuthoritiesConverter implements Converter<Jwt, Collection
     }
 
     /**
-     * JWT 校验通过后查询账号，确保禁用和角色变更在下一次请求生效。
+     * JWT 校验通过后查询账号，拒绝版本已失效的令牌。
      *
      * @param jwt 已通过签名和声明校验的令牌
-     * @return 账号当前角色对应的权限
+     * @return 令牌角色对应的权限
      */
     @Override
     public Collection<GrantedAuthority> convert(Jwt jwt) {
@@ -37,17 +37,30 @@ public class JwtAccountAuthoritiesConverter implements Converter<Jwt, Collection
         } catch (NumberFormatException exception) {
             throw new InvalidBearerTokenException("令牌中的账号 ID 无效", exception);
         }
+        Object tokenVersion = jwt.getClaim("token_version");
+        if (!(tokenVersion instanceof Long || tokenVersion instanceof Integer)
+                || ((Number) tokenVersion).longValue() < 0L) {
+            throw new InvalidBearerTokenException("令牌版本号无效，请重新登录");
+        }
 
         // 每次请求只查询认证需要的字段，不读取密码哈希等账号信息。
         UserAccount userAccount = userAccountMapper.selectOne(
                 new LambdaQueryWrapper<UserAccount>()
-                        .select(UserAccount::getId, UserAccount::getRole, UserAccount::getEnabled)
+                        .select(UserAccount::getId, UserAccount::getEnabled, UserAccount::getTokenVersion)
                         .eq(UserAccount::getId, id)
         );
         if (userAccount == null || !Boolean.TRUE.equals(userAccount.getEnabled())) {
             throw new InvalidBearerTokenException("账号不存在或已被禁用");
         }
+        if (userAccount.getTokenVersion() == null
+                || ((Number) tokenVersion).longValue() != userAccount.getTokenVersion()) {
+            throw new InvalidBearerTokenException("登录状态已失效，请重新登录");
+        }
 
-        return List.of(new SimpleGrantedAuthority("ROLE_" + userAccount.getRole()));
+        String role = jwt.getClaimAsString("role");
+        if (!"ADMIN".equals(role) && !"EDITOR".equals(role) && !"USER".equals(role)) {
+            throw new InvalidBearerTokenException("令牌中的账号角色无效");
+        }
+        return List.of(new SimpleGrantedAuthority("ROLE_" + role));
     }
 }

@@ -83,6 +83,7 @@ class SecurityConfigTests {
                 .id(1L)
                 .role("ADMIN")
                 .enabled(true)
+                .tokenVersion(0L)
                 .build();
         when(userAccountMapper.selectOne(any())).thenReturn(userAccount);
 
@@ -165,7 +166,7 @@ class SecurityConfigTests {
     @ValueSource(strings = {"EDITOR", "USER"})
     void shouldRejectNonAdminAccessToUserManagement(String role) throws Exception {
         userAccount.setRole(role);
-        String token = createToken("ADMIN");
+        String token = createToken(role);
 
         mockMvc.perform(get("/admin/users/security-test")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -183,15 +184,20 @@ class SecurityConfigTests {
                 .andExpect(status().isOk());
 
         userAccount.setRole("EDITOR");
+        userAccount.setTokenVersion(1L);
 
         mockMvc.perform(get("/admin/users/security-test")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/security-test/content")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("EDITOR")))
                 .andExpect(status().isOk());
 
-        verify(userAccountMapper, times(3)).selectOne(any());
+        verify(userAccountMapper, times(4)).selectOne(any());
     }
 
     @Test
@@ -202,9 +208,13 @@ class SecurityConfigTests {
                 .andExpect(status().isOk());
 
         userAccount.setRole("USER");
+        userAccount.setTokenVersion(1L);
 
         mockMvc.perform(get("/security-test/content")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("USER")))
                 .andExpect(status().isForbidden());
     }
 
@@ -217,12 +227,16 @@ class SecurityConfigTests {
                 .andExpect(status().isForbidden());
 
         userAccount.setRole("ADMIN");
+        userAccount.setTokenVersion(1L);
 
         mockMvc.perform(get("/admin/users/security-test")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/users/security-test")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN")))
                 .andExpect(status().isOk());
 
-        verify(userAccountMapper, times(2)).selectOne(any());
+        verify(userAccountMapper, times(3)).selectOne(any());
     }
 
     @ParameterizedTest
@@ -235,6 +249,7 @@ class SecurityConfigTests {
                 .andExpect(status().isOk());
 
         userAccount.setEnabled(false);
+        userAccount.setTokenVersion(1L);
 
         mockMvc.perform(get("/security-test/content")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
@@ -266,9 +281,13 @@ class SecurityConfigTests {
                 .andExpect(status().isUnauthorized());
 
         userAccount.setEnabled(true);
+        userAccount.setTokenVersion(1L);
 
         mockMvc.perform(get("/security-test/content")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN")))
                 .andExpect(status().isOk());
     }
 
@@ -287,7 +306,7 @@ class SecurityConfigTests {
     void shouldQueryOnlyCurrentAccountAuthenticationFields() throws Exception {
         when(userAccountMapper.selectOne(any())).thenAnswer(invocation -> {
             LambdaQueryWrapper<UserAccount> query = invocation.getArgument(0);
-            assertEquals("id,role,enabled", query.getSqlSelect());
+            assertEquals("id,enabled,token_version", query.getSqlSelect());
             assertTrue(query.getSqlSegment().contains("id ="));
             assertEquals(1L, query.getParamNameValuePairs().get("MPGENVAL1"));
             return userAccount;
@@ -311,6 +330,13 @@ class SecurityConfigTests {
      * 支持省略或替换账号 ID，验证非法令牌不会进入账号查询。
      */
     private String createToken(String role, String subject) {
+        return createToken(role, subject, userAccount.getTokenVersion());
+    }
+
+    /**
+     * 支持构造缺失或非法的版本号，确保不能兼容放行旧令牌。
+     */
+    private String createToken(String role, String subject, Object tokenVersion) {
         Instant now = Instant.now();
         JwtClaimsSet.Builder claims = JwtClaimsSet.builder()
                 .issuer("acgbox-admin")
@@ -321,8 +347,58 @@ class SecurityConfigTests {
         if (subject != null) {
             claims.subject(subject);
         }
+        if (tokenVersion != null) {
+            claims.claim("token_version", tokenVersion);
+        }
         JwsHeader header = JwsHeader.with(MacAlgorithm.HS256).build();
         return jwtEncoder.encode(JwtEncoderParameters.from(header, claims.build())).getTokenValue();
+    }
+
+    @Test
+    void shouldRejectTokenWithoutVersion() throws Exception {
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN", "1", null)))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userAccountMapper);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0", "abc"})
+    void shouldRejectNonNumericVersion(String tokenVersion) throws Exception {
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN", "1", tokenVersion)))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userAccountMapper);
+    }
+
+    @Test
+    void shouldRejectFractionalVersionWithoutTruncatingIt() throws Exception {
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN", "1", 0.5)))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userAccountMapper);
+    }
+
+    @Test
+    void shouldRejectTokenAfterPasswordVersionChanges() throws Exception {
+        String token = createToken("ADMIN");
+        userAccount.setTokenVersion(1L);
+
+        mockMvc.perform(get("/security-test/content")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void shouldUseSignedRoleWhenVersionMatchesWithoutReadingDatabaseRole() throws Exception {
+        userAccount.setRole(null);
+
+        mockMvc.perform(get("/admin/users/security-test")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN")))
+                .andExpect(status().isOk());
     }
 
     @TestConfiguration
