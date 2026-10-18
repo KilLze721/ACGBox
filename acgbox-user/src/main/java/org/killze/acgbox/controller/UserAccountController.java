@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.killze.acgbox.dto.user.UserAccountDTO;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
 import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
+import org.killze.acgbox.dto.user.UserAccountCreateDTO;
+import org.killze.acgbox.dto.user.UserAccountDeleteDTO;
 import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.UserAccountService;
 import org.killze.acgbox.vo.common.PageVO;
@@ -29,6 +31,15 @@ public class UserAccountController {
 
     @Autowired
     private UserAccountService userAccountService;
+
+    /**
+     * 创建编辑或普通用户账号，不记录初始密码。
+     */
+    @PostMapping("/create")
+    public Result<UserAccountVO> createUserAccount(@Valid @RequestBody UserAccountCreateDTO userAccountCreateDTO) {
+        log.info("创建用户账号");
+        return Result.success(userAccountService.createUserAccount(userAccountCreateDTO));
+    }
 
     /**
      * 分页查询用户账号。
@@ -68,6 +79,18 @@ public class UserAccountController {
             @AuthenticationPrincipal Jwt jwt) {
         log.info("重置用户账号密码：{}", passwordDTO.getId());
         userAccountService.resetUserAccountPassword(passwordDTO, Long.valueOf(jwt.getSubject()));
+        return Result.success();
+    }
+
+    /**
+     * 物理删除单个用户账号，操作者 ID 从已认证的 JWT 获取。
+     */
+    @PostMapping("/delete")
+    public Result<Void> deleteUserAccount(
+            @Valid @RequestBody UserAccountDeleteDTO userAccountDeleteDTO,
+            @AuthenticationPrincipal Jwt jwt) {
+        log.info("删除用户账号：{}", userAccountDeleteDTO.getId());
+        userAccountService.deleteUserAccount(userAccountDeleteDTO, Long.valueOf(jwt.getSubject()));
         return Result.success();
     }
 }

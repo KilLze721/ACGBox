@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
 import org.killze.acgbox.dto.user.UserAccountDTO;
 import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
+import org.killze.acgbox.dto.user.UserAccountCreateDTO;
+import org.killze.acgbox.dto.user.UserAccountDeleteDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
@@ -35,6 +37,53 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Autowired
     private PasswordEncoder passwordEncoder;
+
+    /**
+     * 创建编辑或普通用户账号，初始令牌版本固定为零。
+     *
+     * @param userAccountCreateDTO 用户账号创建信息
+     * @return 用户账号信息
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserAccountVO createUserAccount(UserAccountCreateDTO userAccountCreateDTO) {
+        String role = userAccountCreateDTO.getRole();
+        if (!"EDITOR".equals(role) && !"USER".equals(role)) {
+            throw new BusinessException("创建账号仅支持 EDITOR、USER 角色");
+        }
+        String username = userAccountCreateDTO.getUsername().trim();
+        String email = StringUtils.hasText(userAccountCreateDTO.getEmail()) ? userAccountCreateDTO.getEmail().trim() : null;
+        String password = userAccountCreateDTO.getPassword();
+        if (password.getBytes(StandardCharsets.UTF_8).length > 72) {
+            throw new BusinessException("密码不能超过 72 个 UTF-8 字节");
+        }
+        if (userAccountMapper.exists(new LambdaQueryWrapper<UserAccount>()
+                .apply("lower(username) = lower({0})", username))) {
+            throw new BusinessException("此登录用户名已存在");
+        }
+        if (email != null && userAccountMapper.exists(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getEmail, email))) {
+            throw new BusinessException("此邮箱已被使用");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        UserAccount userAccount = UserAccount.builder()
+                .username(username)
+                .email(email)
+                .passwordHash(passwordEncoder.encode(password))
+                .role(role)
+                .enabled(userAccountCreateDTO.getEnabled())
+                .tokenVersion(0L)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+        try {
+            userAccountMapper.insert(userAccount);
+        } catch (DuplicateKeyException exception) {
+            throw new BusinessException("登录用户名或邮箱已被使用");
+        }
+        return buildUserAccountVO(userAccount);
+    }
 
     /**
      * 分页查询用户账号。
@@ -188,6 +237,30 @@ public class UserAccountServiceImpl implements UserAccountService {
         }
         updateAccountWithVersion(userAccount, new LambdaUpdateWrapper<UserAccount>()
                 .set(UserAccount::getPasswordHash, passwordEncoder.encode(newPassword)));
+    }
+
+    /**
+     * 验证管理员密码后物理删除单个账号，不删除管理员或并发修改后的账号。
+     *
+     * @param userAccountDeleteDTO 用户账号删除信息
+     * @param operatorId 当前登录的管理员 ID
+     */
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteUserAccount(UserAccountDeleteDTO userAccountDeleteDTO, Long operatorId) {
+        UserAccount userAccount = getUserAccount(userAccountDeleteDTO.getId());
+        if ("ADMIN".equals(userAccount.getRole())) {
+            throw new BusinessException("不允许删除管理员账号");
+        }
+        verifyAdminPassword(operatorId, userAccountDeleteDTO.getCurrentPassword());
+        // 删除时再次限制角色和版本，避免在查询与删除之间发生的账号变更被忽略。
+        int deleted = userAccountMapper.delete(new LambdaQueryWrapper<UserAccount>()
+                .eq(UserAccount::getId, userAccount.getId())
+                .ne(UserAccount::getRole, "ADMIN")
+                .eq(UserAccount::getTokenVersion, userAccount.getTokenVersion()));
+        if (deleted != 1) {
+            throw new BusinessException("账号信息已发生变化，请刷新后重试");
+        }
     }
 
     /**

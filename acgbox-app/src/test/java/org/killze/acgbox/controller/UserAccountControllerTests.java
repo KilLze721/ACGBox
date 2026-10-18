@@ -12,6 +12,8 @@ import org.killze.acgbox.config.SecurityConfig;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
 import org.killze.acgbox.dto.user.UserAccountDTO;
 import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
+import org.killze.acgbox.dto.user.UserAccountCreateDTO;
+import org.killze.acgbox.dto.user.UserAccountDeleteDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.exception.GlobalExceptionHandler;
@@ -59,7 +61,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 用户账号查询接口与真实 JWT 安全链测试，不连接真实数据库。
+ * 用户账号管理接口与真实 JWT 安全链测试，不连接真实数据库。
  */
 @SpringJUnitWebConfig(UserAccountControllerTests.TestConfig.class)
 @TestPropertySource(properties = {
@@ -327,6 +329,167 @@ class UserAccountControllerTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(500))
                 .andExpect(jsonPath("$.message").value("账号角色仅支持 ADMIN、EDITOR、USER"));
+        verifyNoInteractions(userAccountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void shouldCreateAccountWithoutAcceptingServerFieldsOrReturningPassword(boolean enabled) throws Exception {
+        when(userAccountService.createUserAccount(any())).thenReturn(UserAccountVO.builder()
+                .id(20L).username("NewEditor").role("EDITOR").enabled(enabled)
+                .build());
+
+        mockMvc.perform(post("/admin/users/create")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"NewEditor","email":null,"password":" InitialPassword! ",
+                                 "role":"EDITOR","enabled":%s,"id":999,"tokenVersion":999,"passwordHash":"ignored"}
+                                """.formatted(enabled)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value(20))
+                .andExpect(jsonPath("$.data.username").value("NewEditor"))
+                .andExpect(jsonPath("$.data.enabled").value(enabled))
+                .andExpect(jsonPath("$.data.password").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+                .andExpect(jsonPath("$.data.tokenVersion").doesNotExist())
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+
+        ArgumentCaptor<UserAccountCreateDTO> captor = ArgumentCaptor.forClass(UserAccountCreateDTO.class);
+        verify(userAccountService).createUserAccount(captor.capture());
+        assertEquals(" InitialPassword! ", captor.getValue().getPassword());
+        assertEquals(enabled, captor.getValue().getEnabled());
+        assertNull(captor.getValue().getEmail());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "ROOT", "editor"})
+    void shouldRejectAdminOrUnsupportedRoleInCreateRequest(String role) throws Exception {
+        mockMvc.perform(post("/admin/users/create")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"NewEditor","password":"InitialPassword!","role":"%s","enabled":true}
+                                """.formatted(role)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("创建账号仅支持 EDITOR、USER 角色"));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    @Test
+    void shouldRequireInitialPasswordInCreateRequest() throws Exception {
+        mockMvc.perform(post("/admin/users/create")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"username":"NewEditor","role":"EDITOR","enabled":true}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("初始密码不能为空"));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    @Test
+    void shouldDeleteSingleAccountWithOperatorIdFromJwt() throws Exception {
+        mockMvc.perform(post("/admin/users/delete")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2,"currentPassword":"admin-password","operatorId":999}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.currentPassword").doesNotExist())
+                .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+
+        ArgumentCaptor<UserAccountDeleteDTO> captor = ArgumentCaptor.forClass(UserAccountDeleteDTO.class);
+        verify(userAccountService).deleteUserAccount(captor.capture(), eq(1L));
+        assertEquals(2L, captor.getValue().getId());
+        assertEquals("admin-password", captor.getValue().getCurrentPassword());
+    }
+
+    @Test
+    void shouldRequireOperatorPasswordInDeleteRequest() throws Exception {
+        mockMvc.perform(post("/admin/users/delete")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":2}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("管理员密码不能为空"));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    @Test
+    void shouldRejectNonPositiveDeleteId() throws Exception {
+        mockMvc.perform(post("/admin/users/delete")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"id":0,"currentPassword":"admin-password"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("用户账号 ID 必须大于等于 1"));
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"EDITOR", "USER"})
+    void shouldRejectNonAdminOnCreateAndDelete(String role) throws Exception {
+        currentUser.setRole(role);
+        String token = createToken();
+        for (String path : List.of("/admin/users/create", "/admin/users/delete")) {
+            mockMvc.perform(post(path)
+                            .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                            .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                    .andExpect(status().isForbidden());
+        }
+        verifyNoInteractions(userAccountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/users/create", "/admin/users/delete"})
+    void shouldRejectAnonymousCreateAndDelete(String path) throws Exception {
+        mockMvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userAccountService, userAccountMapper);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/users/create", "/admin/users/delete"})
+    void shouldRejectDisabledAdminOnCreateAndDelete(String path) throws Exception {
+        currentUser.setEnabled(false);
+
+        mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken())
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(userAccountService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/users/create", "/admin/users/delete"})
+    void shouldRejectOldVersionTokenOnCreateAndDelete(String path) throws Exception {
+        String token = createToken();
+        currentUser.setTokenVersion(1L);
+
+        mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isUnauthorized());
+
         verifyNoInteractions(userAccountService);
     }
 

@@ -3,6 +3,8 @@ package org.killze.acgbox.service;
 import org.killze.acgbox.dto.user.UserAccountPageDTO;
 import org.killze.acgbox.dto.user.UserAccountDTO;
 import org.killze.acgbox.dto.user.UserAccountPasswordDTO;
+import org.killze.acgbox.dto.user.UserAccountCreateDTO;
+import org.killze.acgbox.dto.user.UserAccountDeleteDTO;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.user.UserAccountVO;
 
@@ -10,6 +12,14 @@ import org.killze.acgbox.vo.user.UserAccountVO;
  * 用户账号服务接口。
  */
 public interface UserAccountService {
+
+    /**
+     * 创建编辑或普通用户账号，不允许创建管理员。
+     *
+     * @param userAccountCreateDTO 用户账号创建信息
+     * @return 用户账号信息
+     */
+    UserAccountVO createUserAccount(UserAccountCreateDTO userAccountCreateDTO);
 
     /**
      * 分页查询用户账号。
@@ -43,4 +53,12 @@ public interface UserAccountService {
      * @param operatorId 当前登录的管理员 ID
      */
     void resetUserAccountPassword(UserAccountPasswordDTO passwordDTO, Long operatorId);
+
+    /**
+     * 验证管理员密码后物理删除单个账号，不允许删除管理员。
+     *
+     * @param userAccountDeleteDTO 用户账号删除信息
+     * @param operatorId 当前登录的管理员 ID
+     */
+    void deleteUserAccount(UserAccountDeleteDTO userAccountDeleteDTO, Long operatorId);
 }
