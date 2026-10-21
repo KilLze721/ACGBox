@@ -3,6 +3,8 @@ package org.killze.acgbox.controller;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.jayway.jsonpath.JsonPath;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,13 +28,21 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.junit.jupiter.web.SpringJUnitWebConfig;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 import org.springframework.web.servlet.config.annotation.EnableWebMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionSystemException;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.util.List;
 
@@ -43,6 +53,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -68,8 +79,14 @@ class CurrentAccountControllerTests {
     @Autowired
     private WebApplicationContext context;
 
-    @Autowired
+    @MockitoSpyBean
     private JwtService jwtService;
+
+    @Autowired
+    private JwtDecoder jwtDecoder;
+
+    @MockitoBean
+    private PlatformTransactionManager transactionManager;
 
     @MockitoBean
     private UserAccountMapper mapper;
@@ -90,6 +107,7 @@ class CurrentAccountControllerTests {
         when(mapper.selectOne(any())).thenReturn(account);
         when(mapper.selectById(2L)).thenReturn(account);
         when(mapper.update(isNull(UserAccount.class), any())).thenReturn(1);
+        when(transactionManager.getTransaction(any())).thenAnswer(invocation -> new SimpleTransactionStatus());
         mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
     }
 
@@ -114,13 +132,13 @@ class CurrentAccountControllerTests {
     void shouldChangeOwnPasswordAndRejectOldToken(String role) throws Exception {
         account.setRole(role);
         String token = jwtService.createToken(account);
-        mockMvc.perform(post("/admin/account/change-password")
+        MvcResult result = mockMvc.perform(post("/admin/account/change-password")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"currentPassword\":\"old-password\",\"newPassword\":\"new-password\","
                                 + "\"id\":1,\"role\":\"ADMIN\",\"enabled\":false}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
+                .andExpect(jsonPath("$.code").value(200)).andReturn();
 
         assertEquals(8L, account.getTokenVersion());
         assertEquals(role, account.getRole());
@@ -131,11 +149,7 @@ class CurrentAccountControllerTests {
         assertTrue(captor.getValue().getParamNameValuePairs().values().containsAll(List.of(2L, 7L)));
         assertFalse(captor.getValue().getSqlSet().contains("role="));
         verify(mapper, never()).selectById(1L);
-        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isUnauthorized());
-        mockMvc.perform(get("/admin/account")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtService.createToken(account)))
-                .andExpect(status().isOk());
+        assertRenewedLogin(result, token);
     }
 
     @Test
@@ -156,32 +170,30 @@ class CurrentAccountControllerTests {
     @Test
     void shouldBindEmailAndInvalidateOldToken() throws Exception {
         String token = jwtService.createToken(account);
-        mockMvc.perform(post("/admin/account/email")
+        MvcResult result = mockMvc.perform(post("/admin/account/email")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"New@Example.com\",\"newEmailCode\":\"123456\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
+                .andExpect(jsonPath("$.code").value(200)).andReturn();
         verify(emailVerificationService).verifyAndConsume(2L, 7L, "BIND", "New@Example.com", "123456");
         assertEquals(8L, account.getTokenVersion());
-        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isUnauthorized());
+        assertRenewedLogin(result, token);
     }
 
     @Test
     void shouldUnbindEmailAndInvalidateOldToken() throws Exception {
         account.setEmail("Old@Example.com");
         String token = jwtService.createToken(account);
-        mockMvc.perform(post("/admin/account/email/unbind")
+        MvcResult result = mockMvc.perform(post("/admin/account/email/unbind")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"verificationCode\":\"654321\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
+                .andExpect(jsonPath("$.code").value(200)).andReturn();
         verify(emailVerificationService).verifyAndConsume(2L, 7L, "UNBIND", "Old@Example.com", "654321");
         assertEquals(8L, account.getTokenVersion());
-        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isUnauthorized());
+        assertRenewedLogin(result, token);
     }
 
     @Test
@@ -275,6 +287,7 @@ class CurrentAccountControllerTests {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"currentEmailCode\":\"654321\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.emailChangeToken").value(proof))
+                .andExpect(jsonPath("$.data.token").doesNotExist())
                 .andExpect(jsonPath("$.data.expiresIn").value(300));
         assertEquals("Old@Example.com", account.getEmail());
         assertEquals(7L, account.getTokenVersion());
@@ -285,11 +298,11 @@ class CurrentAccountControllerTests {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"purpose\":\"BIND\",\"email\":\"New@Example.com\",\"emailChangeToken\":\"" + proof + "\"}"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
-        mockMvc.perform(post("/admin/account/email")
+        MvcResult result = mockMvc.perform(post("/admin/account/email")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"email\":\"New@Example.com\",\"newEmailCode\":\"123456\",\"emailChangeToken\":\"" + proof + "\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200)).andReturn();
 
         var order = inOrder(emailVerificationService);
         order.verify(emailVerificationService).sendCode(2L, 7L, "CHANGE", "Old@Example.com");
@@ -301,8 +314,7 @@ class CurrentAccountControllerTests {
         order.verify(emailVerificationService).verifyAndConsume(2L, 7L, "BIND", "New@Example.com", "123456");
         order.verify(emailVerificationService).verifyEmailChangeToken(2L, 7L, "Old@Example.com", proof, true);
         assertEquals(8L, account.getTokenVersion());
-        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isUnauthorized());
+        assertRenewedLogin(result, token);
     }
 
     @ParameterizedTest
@@ -332,11 +344,125 @@ class CurrentAccountControllerTests {
         verify(mapper, never()).update(isNull(UserAccount.class), any());
     }
 
+    @Test
+    void shouldKeepExistingVersionWhenPasswordDoesNotChange() throws Exception {
+        String token = jwtService.createToken(account);
+        mockMvc.perform(post("/admin/account/change-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"old-password\",\"newPassword\":\"old-password\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").isNotEmpty())
+                .andExpect(jsonPath("$.data.expiresIn").value(7200));
+        assertEquals(7L, account.getTokenVersion());
+        verify(mapper, never()).update(isNull(UserAccount.class), any());
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/account/change-password", "/admin/account/email", "/admin/account/email/unbind"})
+    void shouldRollbackWithoutReturningTokenWhenSigningFails(String path) throws Exception {
+        account.setEmail("Old@Example.com");
+        String token = jwtService.createToken(account);
+        doThrow(new IllegalStateException("模拟令牌签发失败")).when(jwtService).createToken(any());
+        mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"old-password\",\"newPassword\":\"new-password\","
+                                + "\"email\":\"Old@Example.com\",\"newEmailCode\":\"123456\",\"verificationCode\":\"654321\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        verify(transactionManager).rollback(any());
+        verify(transactionManager, never()).commit(any());
+    }
+
+    @Test
+    void shouldNotReturnTokenWhenTransactionCommitFails() throws Exception {
+        String token = jwtService.createToken(account);
+        doThrow(new TransactionSystemException("模拟事务提交失败")).when(transactionManager).commit(any());
+        mockMvc.perform(post("/admin/account/change-password")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"old-password\",\"newPassword\":\"new-password\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        verify(transactionManager).commit(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/admin/users/update", "/admin/users/reset-password"})
+    void shouldNotRenewTargetLoginWhenAdminChangesAnotherAccount(String path) throws Exception {
+        account.setRole("ADMIN");
+        UserAccount target = UserAccount.builder().id(3L).username("OtherEditor").role("EDITOR")
+                .enabled(true).tokenVersion(7L).passwordHash(account.getPasswordHash()).build();
+        when(mapper.selectById(3L)).thenReturn(target);
+        doAnswer(invocation -> {
+            LambdaQueryWrapper<UserAccount> query = invocation.getArgument(0);
+            query.getSqlSegment();
+            return query.getParamNameValuePairs().containsValue(3L) ? target : account;
+        }).when(mapper).selectOne(any());
+        String adminToken = jwtService.createToken(account);
+        String targetToken = jwtService.createToken(target);
+
+        mockMvc.perform(post(path)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":3,\"username\":\"RenamedEditor\",\"email\":null,\"role\":\"EDITOR\","
+                                + "\"enabled\":true,\"currentPassword\":\"old-password\",\"newPassword\":\"new-password\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        assertEquals(8L, target.getTokenVersion());
+        assertEquals(7L, account.getTokenVersion());
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + targetToken))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + adminToken))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void shouldNotRenewAdminLoginWhenUsingUserManagementToChangeSelf() throws Exception {
+        account.setRole("ADMIN");
+        String token = jwtService.createToken(account);
+        mockMvc.perform(post("/admin/users/update")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":2,\"username\":\"RenamedAdmin\",\"email\":null,\"role\":\"ADMIN\",\"enabled\":true}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.token").doesNotExist());
+        assertEquals(8L, account.getTokenVersion());
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+    }
+
+    private void assertRenewedLogin(MvcResult result, String oldToken) throws Exception {
+        String response = result.getResponse().getContentAsString();
+        String token = JsonPath.read(response, "$.data.token");
+        Jwt jwt = jwtDecoder.decode(token);
+        assertFalse(oldToken.equals(token));
+        assertEquals(account.getId().toString(), jwt.getSubject());
+        assertEquals(account.getTokenVersion(), ((Number) jwt.getClaim("token_version")).longValue());
+        assertEquals(account.getRole(), jwt.getClaimAsString("role"));
+        assertEquals(7200L, jwt.getExpiresAt().getEpochSecond() - jwt.getIssuedAt().getEpochSecond());
+        assertEquals(account.getId().intValue(), JsonPath.<Integer>read(response, "$.data.id"));
+        assertEquals(account.getUsername(), JsonPath.read(response, "$.data.username"));
+        assertEquals(account.getRole(), JsonPath.read(response, "$.data.role"));
+        assertEquals(7200, JsonPath.<Integer>read(response, "$.data.expiresIn"));
+        assertFalse(response.contains("passwordHash"));
+        assertFalse(response.contains("currentPassword"));
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + oldToken))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/admin/account").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk());
+        verify(transactionManager).commit(any());
+    }
+
     @TestConfiguration
     @EnableWebMvc
     @EnableWebSecurity
+    @EnableTransactionManagement
     @Import({SecurityConfig.class, JwtConfig.class, CurrentAccountController.class,
-            UserAccountServiceImpl.class, JwtServiceImpl.class, GlobalExceptionHandler.class})
+            UserAccountController.class, UserAccountServiceImpl.class, JwtServiceImpl.class, GlobalExceptionHandler.class})
     static class TestConfig {
     }
 }

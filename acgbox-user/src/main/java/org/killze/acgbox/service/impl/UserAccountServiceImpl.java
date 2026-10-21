@@ -18,10 +18,13 @@ import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
 import org.killze.acgbox.service.UserAccountService;
 import org.killze.acgbox.service.EmailVerificationService;
+import org.killze.acgbox.service.JwtService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.user.UserAccountVO;
 import org.killze.acgbox.vo.user.UserAccountEmailChangeVO;
+import org.killze.acgbox.vo.user.LoginVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -47,6 +50,12 @@ public class UserAccountServiceImpl implements UserAccountService {
 
     @Autowired
     private EmailVerificationService emailVerificationService;
+
+    @Autowired
+    private JwtService jwtService;
+
+    @Value("${jwt.expiration}")
+    private Long expiration;
 
     /**
      * 创建编辑或普通用户账号，初始令牌版本固定为零。
@@ -274,25 +283,27 @@ public class UserAccountServiceImpl implements UserAccountService {
     }
 
     /**
-     * 校验当前密码后修改自己的密码，实际变更时递增令牌版本。
+     * 校验当前密码后修改自己的密码，实际变更时递增令牌版本并续发登录令牌。
      *
      * @param passwordDTO 密码修改信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void changeCurrentUserAccountPassword(UserAccountChangePasswordDTO passwordDTO, Long id, Long tokenVersion) {
+    public LoginVO changeCurrentUserAccountPassword(UserAccountChangePasswordDTO passwordDTO, Long id, Long tokenVersion) {
         UserAccount userAccount = verifyCurrentUserAccount(id, tokenVersion, passwordDTO.getCurrentPassword());
         String newPassword = passwordDTO.getNewPassword();
         if (newPassword.getBytes(StandardCharsets.UTF_8).length > 72) {
             throw new BusinessException("新密码不能超过 72 个 UTF-8 字节");
         }
         if (passwordEncoder.matches(newPassword, userAccount.getPasswordHash())) {
-            return;
+            return createLoginVO(userAccount);
         }
         updateAccountWithVersion(userAccount, new LambdaUpdateWrapper<UserAccount>()
                 .set(UserAccount::getPasswordHash, passwordEncoder.encode(newPassword)));
+        return createLoginVO(userAccount);
     }
 
     /**
@@ -351,10 +362,11 @@ public class UserAccountServiceImpl implements UserAccountService {
      * @param emailDTO 邮箱绑定信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void bindCurrentUserAccountEmail(UserAccountEmailDTO emailDTO, Long id, Long tokenVersion) {
+    public LoginVO bindCurrentUserAccountEmail(UserAccountEmailDTO emailDTO, Long id, Long tokenVersion) {
         UserAccount userAccount = verifyCurrentUserAccount(id, tokenVersion);
         String email = checkBindingEmail(userAccount, emailDTO.getEmail());
         boolean emailChanged = !Objects.equals(userAccount.getEmail(), email);
@@ -370,6 +382,7 @@ public class UserAccountServiceImpl implements UserAccountService {
         updateAccountWithVersion(userAccount, new LambdaUpdateWrapper<UserAccount>()
                 .set(UserAccount::getEmail, email)
                 .set(UserAccount::getEmailVerifiedAt, LocalDateTime.now()));
+        return createLoginVO(userAccount);
     }
 
     /**
@@ -378,10 +391,11 @@ public class UserAccountServiceImpl implements UserAccountService {
      * @param emailDTO 邮箱解绑信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void unbindCurrentUserAccountEmail(UserAccountUnbindEmailDTO emailDTO, Long id, Long tokenVersion) {
+    public LoginVO unbindCurrentUserAccountEmail(UserAccountUnbindEmailDTO emailDTO, Long id, Long tokenVersion) {
         UserAccount userAccount = verifyCurrentUserAccount(id, tokenVersion);
         if (userAccount.getEmail() == null) {
             throw new BusinessException("当前账号尚未绑定邮箱");
@@ -391,6 +405,24 @@ public class UserAccountServiceImpl implements UserAccountService {
         updateAccountWithVersion(userAccount, new LambdaUpdateWrapper<UserAccount>()
                 .set(UserAccount::getEmail, null)
                 .set(UserAccount::getEmailVerifiedAt, null));
+        return createLoginVO(userAccount);
+    }
+
+    /**
+     * 仅为完成本人校验的账号签发令牌，使用更新后的版本，不读取客户端指定的身份。
+     * 签发在修改事务内完成，签发失败时回滚数据库修改，事务提交后才向前端返回。
+     *
+     * @param userAccount 完成本人校验及修改的当前账号
+     * @return 当前账号的新登录信息
+     */
+    private LoginVO createLoginVO(UserAccount userAccount) {
+        return LoginVO.builder()
+                .token(jwtService.createToken(userAccount))
+                .expiresIn(expiration)
+                .id(userAccount.getId())
+                .username(userAccount.getUsername())
+                .role(userAccount.getRole())
+                .build();
     }
 
     /**

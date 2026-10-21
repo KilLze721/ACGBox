@@ -11,6 +11,7 @@ import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.UserAccountService;
 import org.killze.acgbox.vo.user.UserAccountVO;
 import org.killze.acgbox.vo.user.UserAccountEmailChangeVO;
+import org.killze.acgbox.vo.user.LoginVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -40,16 +41,16 @@ public class CurrentAccountController {
     }
 
     /**
-     * 校验当前密码后修改自己的密码。
+     * 校验当前密码后修改自己的密码，返回新登录令牌供当前页面继续使用。
      */
     @PostMapping("/change-password")
-    public Result<Void> changeCurrentUserAccountPassword(
+    public Result<LoginVO> changeCurrentUserAccountPassword(
             @Valid @RequestBody UserAccountChangePasswordDTO passwordDTO,
             @AuthenticationPrincipal Jwt jwt) {
         Long id = Long.valueOf(jwt.getSubject());
-        userAccountService.changeCurrentUserAccountPassword(passwordDTO, id, getTokenVersion(jwt));
+        LoginVO loginVO = userAccountService.changeCurrentUserAccountPassword(passwordDTO, id, getTokenVersion(jwt));
         log.info("当前账号修改密码，账号 ID：{}", id);
-        return Result.success();
+        return Result.success(loginVO);
     }
 
     /**
@@ -76,29 +77,29 @@ public class CurrentAccountController {
     }
 
     /**
-     * 验证邮箱验证码后绑定或换绑自己的邮箱。
+     * 验证邮箱验证码后绑定或换绑自己的邮箱，并返回新登录令牌。
      */
     @PostMapping("/email")
-    public Result<Void> bindCurrentUserAccountEmail(
+    public Result<LoginVO> bindCurrentUserAccountEmail(
             @Valid @RequestBody UserAccountEmailDTO emailDTO,
             @AuthenticationPrincipal Jwt jwt) {
         Long id = Long.valueOf(jwt.getSubject());
-        userAccountService.bindCurrentUserAccountEmail(emailDTO, id, getTokenVersion(jwt));
+        LoginVO loginVO = userAccountService.bindCurrentUserAccountEmail(emailDTO, id, getTokenVersion(jwt));
         log.info("当前账号绑定或换绑邮箱，账号 ID：{}", id);
-        return Result.success();
+        return Result.success(loginVO);
     }
 
     /**
-     * 验证原邮箱验证码后解绑自己的邮箱。
+     * 验证原邮箱验证码后解绑自己的邮箱，并返回新登录令牌。
      */
     @PostMapping("/email/unbind")
-    public Result<Void> unbindCurrentUserAccountEmail(
+    public Result<LoginVO> unbindCurrentUserAccountEmail(
             @Valid @RequestBody UserAccountUnbindEmailDTO emailDTO,
             @AuthenticationPrincipal Jwt jwt) {
         Long id = Long.valueOf(jwt.getSubject());
-        userAccountService.unbindCurrentUserAccountEmail(emailDTO, id, getTokenVersion(jwt));
+        LoginVO loginVO = userAccountService.unbindCurrentUserAccountEmail(emailDTO, id, getTokenVersion(jwt));
         log.info("当前账号解绑邮箱，账号 ID：{}", id);
-        return Result.success();
+        return Result.success(loginVO);
     }
 
     /**

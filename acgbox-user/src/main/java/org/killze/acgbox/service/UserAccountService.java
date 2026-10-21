@@ -13,6 +13,7 @@ import org.killze.acgbox.dto.user.UserAccountVerifyEmailDTO;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.user.UserAccountVO;
 import org.killze.acgbox.vo.user.UserAccountEmailChangeVO;
+import org.killze.acgbox.vo.user.LoginVO;
 
 /**
  * 用户账号服务接口。
@@ -69,13 +70,14 @@ public interface UserAccountService {
     void deleteUserAccount(UserAccountDeleteDTO userAccountDeleteDTO, Long operatorId);
 
     /**
-     * 校验当前密码后修改自己的密码，实际变更时使旧令牌失效。
+     * 校验当前密码后修改自己的密码，返回当前账号的新登录令牌。
      *
      * @param passwordDTO 密码修改信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
-    void changeCurrentUserAccountPassword(UserAccountChangePasswordDTO passwordDTO, Long id, Long tokenVersion);
+    LoginVO changeCurrentUserAccountPassword(UserAccountChangePasswordDTO passwordDTO, Long id, Long tokenVersion);
 
     /**
      * 发送绑定、换绑或解绑邮箱验证码，换绑的新邮箱发信须先验证原邮箱。
@@ -97,20 +99,22 @@ public interface UserAccountService {
     UserAccountEmailChangeVO verifyCurrentUserAccountEmail(UserAccountVerifyEmailDTO emailDTO, Long id, Long tokenVersion);
 
     /**
-     * 验证新邮箱后绑定邮箱，换绑须同时提交已验证原邮箱的凭证。
+     * 验证新邮箱后绑定邮箱并返回新登录令牌，换绑须同时提交已验证原邮箱的凭证。
      *
      * @param emailDTO 邮箱绑定信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
-    void bindCurrentUserAccountEmail(UserAccountEmailDTO emailDTO, Long id, Long tokenVersion);
+    LoginVO bindCurrentUserAccountEmail(UserAccountEmailDTO emailDTO, Long id, Long tokenVersion);
 
     /**
-     * 校验原邮箱验证码后解绑自己的邮箱，不要求输入密码。
+     * 校验原邮箱验证码后解绑自己的邮箱并返回新登录令牌，不要求输入密码。
      *
      * @param emailDTO 邮箱解绑信息
      * @param id 当前登录账号 ID
      * @param tokenVersion 当前登录令牌版本号
+     * @return 当前账号的新登录信息
      */
-    void unbindCurrentUserAccountEmail(UserAccountUnbindEmailDTO emailDTO, Long id, Long tokenVersion);
+    LoginVO unbindCurrentUserAccountEmail(UserAccountUnbindEmailDTO emailDTO, Long id, Long tokenVersion);
 }

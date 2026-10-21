@@ -18,6 +18,8 @@ import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
 import org.killze.acgbox.service.EmailVerificationService;
+import org.killze.acgbox.service.JwtService;
+import org.killze.acgbox.vo.user.LoginVO;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -51,6 +53,7 @@ class CurrentAccountServiceImplTests {
     private UserAccountServiceImpl service;
     private UserAccountMapper mapper;
     private EmailVerificationService emailVerificationService;
+    private JwtService jwtService;
     private BCryptPasswordEncoder passwordEncoder;
     private UserAccount account;
     private UserAccountChangePasswordDTO passwordDTO;
@@ -63,11 +66,16 @@ class CurrentAccountServiceImplTests {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), UserAccount.class);
         mapper = mock(UserAccountMapper.class);
         emailVerificationService = mock(EmailVerificationService.class);
+        jwtService = mock(JwtService.class);
+        when(jwtService.createToken(any())).thenAnswer(invocation ->
+                "token-v" + invocation.<UserAccount>getArgument(0).getTokenVersion());
         passwordEncoder = new BCryptPasswordEncoder(4);
         service = new UserAccountServiceImpl();
         ReflectionTestUtils.setField(service, "userAccountMapper", mapper);
         ReflectionTestUtils.setField(service, "passwordEncoder", passwordEncoder);
         ReflectionTestUtils.setField(service, "emailVerificationService", emailVerificationService);
+        ReflectionTestUtils.setField(service, "jwtService", jwtService);
+        ReflectionTestUtils.setField(service, "expiration", 7200L);
         account = UserAccount.builder().id(2L).username("Editor").role("EDITOR").enabled(true)
                 .email("Old@Example.com").emailVerifiedAt(LocalDateTime.now())
                 .passwordHash(passwordEncoder.encode("old-password")).tokenVersion(7L).build();
@@ -94,7 +102,7 @@ class CurrentAccountServiceImplTests {
         account.setRole(role);
         passwordDTO.setNewPassword(" New-Password ");
 
-        service.changeCurrentUserAccountPassword(passwordDTO, 2L, 7L);
+        LoginVO result = service.changeCurrentUserAccountPassword(passwordDTO, 2L, 7L);
 
         LambdaUpdateWrapper<UserAccount> update = captureUpdate();
         String hash = update.getParamNameValuePairs().values().stream()
@@ -105,14 +113,16 @@ class CurrentAccountServiceImplTests {
         assertEquals(8L, account.getTokenVersion());
         assertEquals(role, account.getRole());
         assertFalse(update.getSqlSet().contains("email="));
+        assertLoginInfo(result, 8L);
         verifyNoInteractions(emailVerificationService);
     }
 
     @Test
     void shouldKeepVersionWhenPasswordDoesNotChange() {
         passwordDTO.setNewPassword("old-password");
-        service.changeCurrentUserAccountPassword(passwordDTO, 2L, 7L);
+        LoginVO result = service.changeCurrentUserAccountPassword(passwordDTO, 2L, 7L);
         assertEquals(7L, account.getTokenVersion());
+        assertLoginInfo(result, 7L);
         assertNoUpdate();
     }
 
@@ -226,7 +236,7 @@ class CurrentAccountServiceImplTests {
         account.setEmailVerifiedAt(null);
         emailDTO.setEmailChangeToken(null);
 
-        service.bindCurrentUserAccountEmail(emailDTO, 2L, 7L);
+        LoginVO result = service.bindCurrentUserAccountEmail(emailDTO, 2L, 7L);
 
         verify(emailVerificationService).verifyAndConsume(2L, 7L, "BIND", "New@Example.com", "123456");
         verifyNoMoreInteractions(emailVerificationService);
@@ -234,15 +244,19 @@ class CurrentAccountServiceImplTests {
         assertTrue(update.getSqlSet().contains("email_verified_at="));
         assertTrue(update.getParamNameValuePairs().values().contains("New@Example.com"));
         assertEquals(8L, account.getTokenVersion());
+        assertLoginInfo(result, 8L);
     }
 
     @Test
     void shouldRequireBothMailboxCodesWhenChangingEmail() {
-        service.bindCurrentUserAccountEmail(emailDTO, 2L, 7L);
-        var order = inOrder(emailVerificationService);
+        LoginVO result = service.bindCurrentUserAccountEmail(emailDTO, 2L, 7L);
+        var order = inOrder(emailVerificationService, mapper, jwtService);
         order.verify(emailVerificationService).verifyEmailChangeToken(2L, 7L, "Old@Example.com", "a".repeat(43), false);
         order.verify(emailVerificationService).verifyAndConsume(2L, 7L, "BIND", "New@Example.com", "123456");
         order.verify(emailVerificationService).verifyEmailChangeToken(2L, 7L, "Old@Example.com", "a".repeat(43), true);
+        order.verify(mapper).update(isNull(UserAccount.class), any());
+        order.verify(jwtService).createToken(account);
+        assertLoginInfo(result, 8L);
         captureUpdate();
     }
 
@@ -320,6 +334,7 @@ class CurrentAccountServiceImplTests {
         assertEquals(300L, result.getExpiresIn());
         assertEquals("Old@Example.com", account.getEmail());
         assertEquals(7L, account.getTokenVersion());
+        verifyNoInteractions(jwtService);
         assertNoUpdate();
     }
 
@@ -362,13 +377,14 @@ class CurrentAccountServiceImplTests {
 
     @Test
     void shouldUnbindAndExplicitlyWriteNulls() {
-        service.unbindCurrentUserAccountEmail(unbindDTO, 2L, 7L);
+        LoginVO result = service.unbindCurrentUserAccountEmail(unbindDTO, 2L, 7L);
         verify(emailVerificationService).verifyAndConsume(2L, 7L, "UNBIND", "Old@Example.com", "654321");
         LambdaUpdateWrapper<UserAccount> update = captureUpdate();
         assertTrue(update.getSqlSet().contains("email="));
         assertTrue(update.getSqlSet().contains("email_verified_at="));
         assertEquals(2L, update.getParamNameValuePairs().values().stream().filter(value -> value == null).count());
         assertEquals(8L, account.getTokenVersion());
+        assertLoginInfo(result, 8L);
     }
 
     @Test
@@ -425,5 +441,15 @@ class CurrentAccountServiceImplTests {
 
     private void assertError(String message, Runnable action) {
         assertEquals(message, assertThrows(BusinessException.class, action::run).getMessage());
+        verifyNoInteractions(jwtService);
+    }
+
+    private void assertLoginInfo(LoginVO result, Long tokenVersion) {
+        assertEquals("token-v" + tokenVersion, result.getToken());
+        assertEquals(7200L, result.getExpiresIn());
+        assertEquals(account.getId(), result.getId());
+        assertEquals(account.getUsername(), result.getUsername());
+        assertEquals(account.getRole(), result.getRole());
+        verify(jwtService).createToken(account);
     }
 }
