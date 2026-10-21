@@ -1,6 +1,7 @@
 package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.killze.acgbox.dto.user.LoginDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
@@ -13,6 +14,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+
+import java.time.LocalDateTime;
 
 /**
  * 管理端登录服务实现类。
@@ -110,6 +113,23 @@ public class LoginServiceImpl implements LoginService {
     @Override
     public LoginVO loginByEmail(LoginDTO loginDTO) {
         return createLoginVO(verifyByEmail(loginDTO));
+    }
+
+    /**
+     * 退出管理端登录，使账号当前版本的全部令牌失效。
+     *
+     * @param id 当前登录账号 ID
+     * @param tokenVersion 当前登录令牌版本号
+     */
+    @Override
+    public void logout(Long id, Long tokenVersion) {
+        // 只递增当前令牌对应的版本，已失效的并发退出请求不再修改账号。
+        userAccountMapper.update(null, new LambdaUpdateWrapper<UserAccount>()
+                .eq(UserAccount::getId, id)
+                .eq(UserAccount::getTokenVersion, tokenVersion)
+                .set(UserAccount::getUpdatedAt, LocalDateTime.now())
+                .setSql("token_version = token_version + 1")
+        );
     }
 
     /** 为校验通过的账号签发令牌并组装登录信息。

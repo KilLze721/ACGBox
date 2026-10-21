@@ -40,4 +40,12 @@ public interface LoginService {
      * @return 登录信息
      */
     LoginVO loginByEmail(LoginDTO loginDTO);
+
+    /**
+     * 退出管理端登录，使账号当前版本的全部令牌失效。
+     *
+     * @param id 当前登录账号 ID
+     * @param tokenVersion 当前登录令牌版本号
+     */
+    void logout(Long id, Long tokenVersion);
 }

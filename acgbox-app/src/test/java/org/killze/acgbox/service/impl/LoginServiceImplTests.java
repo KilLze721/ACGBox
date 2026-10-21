@@ -2,6 +2,7 @@ package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,6 +16,7 @@ import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
 import org.killze.acgbox.service.JwtService;
 import org.killze.acgbox.vo.user.LoginVO;
+import org.mockito.ArgumentCaptor;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -250,5 +253,32 @@ class LoginServiceImplTests {
         );
 
         assertEquals("此账号无管理端登录权限", exception.getMessage());
+    }
+
+    @Test
+    void shouldIncrementOnlyAuthenticatedAccountVersionOnLogout() {
+        loginService.logout(1L, 7L);
+
+        ArgumentCaptor<LambdaUpdateWrapper<UserAccount>> captor = ArgumentCaptor.captor();
+        verify(userAccountMapper).update(isNull(UserAccount.class), captor.capture());
+        LambdaUpdateWrapper<UserAccount> wrapper = captor.getValue();
+        assertTrue(wrapper.getSqlSegment().contains("id ="));
+        assertTrue(wrapper.getSqlSegment().contains("token_version ="));
+        assertTrue(wrapper.getSqlSet().contains("updated_at="));
+        assertTrue(wrapper.getSqlSet().contains("token_version = token_version + 1"));
+        assertEquals(1L, wrapper.getParamNameValuePairs().get("MPGENVAL2"));
+        assertEquals(7L, wrapper.getParamNameValuePairs().get("MPGENVAL3"));
+        assertEquals(3, wrapper.getParamNameValuePairs().size());
+        verifyNoInteractions(jwtService);
+    }
+
+    @Test
+    void shouldAllowLogoutToFinishWhenConcurrentRequestAlreadyInvalidatedVersion() {
+        when(userAccountMapper.update(isNull(UserAccount.class), any())).thenReturn(0);
+
+        loginService.logout(1L, 7L);
+
+        verify(userAccountMapper).update(isNull(UserAccount.class), any());
+        verifyNoInteractions(jwtService);
     }
 }

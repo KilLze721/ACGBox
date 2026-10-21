@@ -26,3 +26,6 @@ Thumbs.db
 
 # ===== 日志 =====
 *.log
+
+# ===== 私有配置，示例文件仍可提交 =====
+application-secrets.yml

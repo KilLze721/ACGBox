@@ -1,39 +1,113 @@
-# 服务器配置
+# 公共默认配置：真实密钥、授权码和部署参数放在 JAR 外的 application-secrets.yml 中。
+# 外部文件由启动参数 spring.config.additional-location 加载，不会自动随本文件一起读取。
+# ${配置名:默认值} 从 Spring 配置环境解析，既支持外部私有文件，也支持系统环境变量等来源。
+# 默认值只在配置项未定义时使用，显式设置为空字符串不会触发默认值。
+
+# 后端 HTTP 服务配置。
 server:
-  # 服务端口号
+  # 后端监听端口，与 PostgreSQL、Redis 和 SMTP 的连接端口无关。
   port: 8080
 
-# Spring框架配置
+# Spring 基础设施配置。
 spring:
-  # 数据源配置
+  # PostgreSQL 数据源：这里保留开发默认值，实际环境在私有文件中用同名属性覆盖。
   datasource:
-    url: jdbc:postgresql://localhost:5432/acgbox
-    username: postgres
-    password: 123456
+    # JDBC 连接地址，格式为 jdbc:postgresql://主机:端口/数据库名。
+    # localhost 指后端运行所在的机器，部署后不一定是开发电脑。
+    url: ${ACGBOX_DB_URL}
+    # 数据库认证账号，不是管理端登录的 admin 账号。
+    username: ${ACGBOX_DB_USERNAME}
+    # 数据库账号密码；真实部署密码应配置在外部私有文件，不应继续写入公共配置。
+    password: ${ACGBOX_DB_PASSWORD}
+    # PostgreSQL JDBC 驱动类，与上面的数据库连接类型对应。
     driver-class-name: org.postgresql.Driver
 
-# jwt令牌配置
+  # SMTP 邮件发送配置，供邮箱验证码使用；需要先在邮件服务商开通 SMTP。
+  mail:
+    # SMTP 服务器域名，不是邮箱网页地址；未配置时为空。
+    host: ${ACGBOX_MAIL_HOST:}
+    # 默认 587，通常搭配 STARTTLS；若服务商要求 465，需同时调整下面的加密开关。
+    port: ${ACGBOX_MAIL_PORT:587}
+    # SMTP 认证账号，通常是完整的发信邮箱地址，以服务商要求为准。
+    username: ${ACGBOX_MAIL_USERNAME:}
+    # SMTP 授权码或服务商要求的认证密码，不是网站用户登录密码。
+    password: ${ACGBOX_MAIL_PASSWORD:}
+    # 邮件内容默认编码，保证中文标题和正文正常显示。
+    default-encoding: UTF-8
+    # JavaMail 底层属性，方括号用于保留属性名中的点号。
+    properties:
+      # 启用 SMTP 身份认证，使用上面的 username 和 password。
+      "[mail.smtp.auth]": true
+      # 启用 STARTTLS，将 SMTP 连接升级为 TLS；常见 587 端口使用此方式。
+      "[mail.smtp.starttls.enable]": ${ACGBOX_MAIL_STARTTLS:true}
+      # STARTTLS 开启时要求升级成功，不允许无法升级时退回明文发送。
+      "[mail.smtp.starttls.required]": ${ACGBOX_MAIL_STARTTLS:true}
+      # 隐式 TLS 开关；常见 465 端口设为 true，并将 STARTTLS 开关设为 false。
+      "[mail.smtp.ssl.enable]": ${ACGBOX_MAIL_SSL:false}
+      # 校验 TLS 对端服务器身份，不要为绕过连接报错而随意关闭。
+      "[mail.smtp.ssl.checkserveridentity]": true
+      # 建立 SMTP 连接的超时时间，单位毫秒，5000 表示 5 秒。
+      "[mail.smtp.connectiontimeout]": 5000
+      # 等待 SMTP 服务器响应的读取超时，单位毫秒。
+      "[mail.smtp.timeout]": 5000
+      # 向 SMTP 服务器写入数据的超时，单位毫秒。
+      "[mail.smtp.writetimeout]": 5000
+
+  # Spring Data 组件配置；当前 Redis 用于短期邮箱验证码和发送限流。
+  # 管理端登录仍使用 JWT，并通过数据库校验账号状态和令牌版本。
+  data:
+    redis:
+      # Redis 服务地址，默认与后端部署在同一台机器。
+      host: ${ACGBOX_REDIS_HOST:localhost}
+      # Redis 服务端口，有容器端口映射时填写后端实际可以访问的端口。
+      port: ${ACGBOX_REDIS_PORT:6379}
+      # Redis ACL 用户名，未使用具名 ACL 用户时可以留空。
+      username: ${ACGBOX_REDIS_USERNAME:}
+      # Redis 认证密码，只有服务端确实未配置密码时才可留空。
+      password: ${ACGBOX_REDIS_PASSWORD:}
+      # Redis 逻辑数据库编号，不是 PostgreSQL 数据库名称；默认使用 0 号库。
+      database: ${ACGBOX_REDIS_DATABASE:0}
+      # 建立 Redis 连接的超时时间，3s 表示 3 秒。
+      connect-timeout: 3s
+      # Redis 命令执行超时，使用带单位的时长值。
+      timeout: 3s
+
+# 项目自定义的邮箱验证码配置，与 spring.mail 的 SMTP 连接参数分开管理。
+account-email:
+  # 默认关闭；SMTP 发信信息和 Redis 均配置完成后再设为 true。
+  # 关闭只影响邮箱验证码相关操作，不影响查询账号或修改密码。
+  enabled: ${ACGBOX_ACCOUNT_EMAIL_ENABLED:false}
+  # 发件地址，必须是邮件服务商允许使用的地址，通常与 SMTP 认证账号相同。
+  # 未定义 ACGBOX_MAIL_FROM 时回退为发信账号；显式设置为空字符串时不会回退。
+  from: ${ACGBOX_MAIL_FROM:${ACGBOX_MAIL_USERNAME:}}
+
+# 管理端 JWT 配置，由 JwtConfig 和 JwtServiceImpl 负责校验与签发。
 jwt:
-  # 签名密钥，从环境变量读取密钥
+  # HS256 签名密钥的 Base64 文本，解码后至少 32 字节，必须通过私有配置等来源提供。
+  # 不设置默认密钥；更换密钥会使旧 JWT 签名校验失败，也会影响旧邮箱验证码摘要。
   secret: ${ACGBOX_JWT_SECRET}
+  # 签发方标识，对应 JWT 的 iss 声明，校验时必须与签发时一致。
   issuer: acgbox-admin
+  # 令牌使用目标标识，对应 JWT 的 aud 声明，不是账号角色，也不要求是网址。
   audience: acgbox-admin
-  # 令牌有效期，单位为秒
+  # 新签发令牌的有效期，单位秒，86400 表示 24 小时；修改此值不改变已签发令牌。
   expiration: 86400
 
-# MyBatis-Plus ORM框架配置
+# MyBatis-Plus 数据访问配置。
 mybatis-plus:
-  # MyBatis配置项
+  # MyBatis 核心行为配置。
   configuration:
-    # 开启下划线转驼峰命名映射
+    # 将数据库下划线列名映射为 Java 驼峰属性，例如 created_at 对应 createdAt。
     map-underscore-to-camel-case: true
-    # 配置SQL日志输出实现，使用标准输出打印SQL语句
+    # 将 SQL、参数等信息输出到控制台，便于开发排查，不等同于业务操作日志。
+    # 输出可能包含账号、邮箱或密码哈希等信息，生产环境应审慎启用。
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
-  # 全局策略配置
+  # MyBatis-Plus 全局默认策略，具体实体注解可以覆盖相应字段策略。
   global-config:
-    # 数据库相关配置
+    # 主键与实体字段生成 SQL 时的默认规则。
     db-config:
-      # 主键ID生成策略为数据库自增
+      # 默认由数据库自增生成主键 ID，实体上的 @TableId 策略可覆盖此默认值。
       id-type: auto
-      # WHERE条件字段更新策略：只更新非空字段
+      # 实体生成 WHERE 条件时，NOT_EMPTY 排除 null 和空字符串，其他类型仅排除 null。
+      # 不控制 SET 更新字段，也不影响 Wrapper 中显式指定的条件；不是“只更新非空字段”。
       where-strategy: not_empty
