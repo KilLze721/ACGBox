@@ -63,14 +63,14 @@ public class SystemHealthServiceImpl implements SystemHealthService {
     private Instant expiresAt;
 
     /**
-     * 同步刷新避免并发重复探测，三项检查共享五秒等待期限，完成后缓存三十秒。
+     * 同步刷新避免并发重复探测，三项检查共享十秒等待期限，完成后缓存三十秒。
      */
     @Override
     public synchronized SystemHealthVO getSystemHealth() {
         if (cachedResult != null && clock.instant().isBefore(expiresAt)) {
             return cachedResult;
         }
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L);
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10L);
         Future<DependencyHealthVO> database = submit(this::checkDatabase);
         Future<DependencyHealthVO> redis = submit(this::checkRedis);
         Future<DependencyHealthVO> smtp = enabled ? submit(this::checkSmtp)
