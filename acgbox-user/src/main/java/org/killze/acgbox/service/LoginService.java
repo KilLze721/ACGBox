@@ -1,6 +1,7 @@
 package org.killze.acgbox.service;
 
 import org.killze.acgbox.dto.user.LoginDTO;
+import org.killze.acgbox.dto.user.EmailCodeLoginDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.vo.user.LoginVO;
 
@@ -40,6 +41,21 @@ public interface LoginService {
      * @return 登录信息
      */
     LoginVO loginByEmail(LoginDTO loginDTO);
+
+    /**
+     * 向符合管理端登录条件的邮箱发送验证码，不开放账号注册。
+     *
+     * @param loginDTO 邮箱验证码登录信息，发送时不需要验证码
+     */
+    void sendLoginEmailCode(EmailCodeLoginDTO loginDTO);
+
+    /**
+     * 校验并消费登录验证码，复用现有登录令牌和响应格式。
+     *
+     * @param loginDTO 邮箱验证码登录信息
+     * @return 登录信息
+     */
+    LoginVO loginByEmailCode(EmailCodeLoginDTO loginDTO);
 
     /**
      * 退出管理端登录，使账号当前版本的全部令牌失效。

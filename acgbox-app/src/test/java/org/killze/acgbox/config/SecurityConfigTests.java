@@ -141,7 +141,8 @@ class SecurityConfigTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"/admin/login/username", "/admin/login/email-password"})
+    @ValueSource(strings = {"/admin/login/username", "/admin/login/email-password",
+            "/admin/login/email-code/send", "/admin/login/email-code"})
     void shouldAllowAnonymousLoginRequests(String path) throws Exception {
         mockMvc.perform(post(path))
                 .andExpect(status().isOk())
@@ -420,7 +421,8 @@ class SecurityConfigTests {
             return "ok";
         }
 
-        @PostMapping({"/security-test/content", "/admin/users/security-test", "/admin/login/username", "/admin/login/email-password"})
+        @PostMapping({"/security-test/content", "/admin/users/security-test", "/admin/login/username",
+                "/admin/login/email-password", "/admin/login/email-code/send", "/admin/login/email-code"})
         public String postContent() {
             return "ok";
         }

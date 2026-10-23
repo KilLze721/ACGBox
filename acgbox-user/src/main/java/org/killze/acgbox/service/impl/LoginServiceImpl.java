@@ -3,11 +3,13 @@ package org.killze.acgbox.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.killze.acgbox.dto.user.LoginDTO;
+import org.killze.acgbox.dto.user.EmailCodeLoginDTO;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.UserAccountMapper;
 import org.killze.acgbox.service.JwtService;
 import org.killze.acgbox.service.LoginService;
+import org.killze.acgbox.service.EmailVerificationService;
 import org.killze.acgbox.vo.user.LoginVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +33,9 @@ public class LoginServiceImpl implements LoginService {
 
     @Autowired
     private JwtService jwtService;
+
+    @Autowired
+    private EmailVerificationService emailVerificationService;
 
     @Value("${jwt.expiration}")
     private Long expiration;
@@ -113,6 +118,66 @@ public class LoginServiceImpl implements LoginService {
     @Override
     public LoginVO loginByEmail(LoginDTO loginDTO) {
         return createLoginVO(verifyByEmail(loginDTO));
+    }
+
+    /**
+     * 仅向已验证邮箱且具有管理端权限的启用账号发送登录验证码。
+     * 不符合条件时不发送邮件并正常返回，避免通过响应直接枚举账号。
+     *
+     * @param loginDTO 邮箱验证码发送信息
+     */
+    @Override
+    public void sendLoginEmailCode(EmailCodeLoginDTO loginDTO) {
+        UserAccount userAccount = findEmailCodeAccount(loginDTO.getEmail());
+        if (userAccount == null) {
+            return;
+        }
+        emailVerificationService.sendCode(userAccount.getId(), userAccount.getTokenVersion(),
+                "LOGIN", userAccount.getEmail());
+    }
+
+    /**
+     * 按数据库中的当前账号版本校验并消费登录验证码，成功后复用登录响应。
+     * 登录不修改账号资料或版本，其他用途的验证码不能用于登录。
+     *
+     * @param loginDTO 邮箱验证码登录信息
+     * @return 登录信息
+     */
+    @Override
+    public LoginVO loginByEmailCode(EmailCodeLoginDTO loginDTO) {
+        if (!StringUtils.hasText(loginDTO.getVerificationCode())) {
+            throw new BusinessException("登录验证码不能为空");
+        }
+        UserAccount userAccount = findEmailCodeAccount(loginDTO.getEmail());
+        if (userAccount == null) {
+            throw new BusinessException("验证码错误或已过期，请重新获取");
+        }
+        emailVerificationService.verifyAndConsume(userAccount.getId(), userAccount.getTokenVersion(),
+                "LOGIN", userAccount.getEmail(), loginDTO.getVerificationCode());
+        return createLoginVO(userAccount);
+    }
+
+    /**
+     * 沿用区分大小写的邮箱查询，只读取验证码登录需要的字段，不读取密码哈希。
+     *
+     * @param email 登录邮箱
+     * @return 符合验证码登录条件的账号，不符合时返回空
+     */
+    private UserAccount findEmailCodeAccount(String email) {
+        if (!StringUtils.hasText(email)) {
+            throw new BusinessException("登录邮箱不能为空");
+        }
+        UserAccount userAccount = userAccountMapper.selectOne(new LambdaQueryWrapper<UserAccount>()
+                .select(UserAccount::getId, UserAccount::getUsername, UserAccount::getEmail,
+                        UserAccount::getRole, UserAccount::getEnabled,
+                        UserAccount::getEmailVerifiedAt, UserAccount::getTokenVersion)
+                .eq(UserAccount::getEmail, email.trim()));
+        if (userAccount == null || !Boolean.TRUE.equals(userAccount.getEnabled())
+                || userAccount.getEmailVerifiedAt() == null
+                || (!"ADMIN".equals(userAccount.getRole()) && !"EDITOR".equals(userAccount.getRole()))) {
+            return null;
+        }
+        return userAccount;
     }
 
     /**

@@ -38,8 +38,11 @@ public class SecurityConfig {
         http.authorizeHttpRequests(authorize -> authorize
                 .requestMatchers(HttpMethod.POST,
                         "/admin/login/username",
-                        "/admin/login/email-password").permitAll()
+                        "/admin/login/email-password",
+                        "/admin/login/email-code/send",
+                        "/admin/login/email-code").permitAll()
                 .requestMatchers("/admin/users/**").hasRole("ADMIN")
+                .requestMatchers("/admin/system/**").hasRole("ADMIN")
                 .anyRequest().hasAnyRole("ADMIN", "EDITOR")
         );
 

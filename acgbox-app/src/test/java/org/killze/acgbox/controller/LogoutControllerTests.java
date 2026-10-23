@@ -15,6 +15,7 @@ import org.killze.acgbox.config.SecurityConfig;
 import org.killze.acgbox.entity.user.UserAccount;
 import org.killze.acgbox.mapper.UserAccountMapper;
 import org.killze.acgbox.service.JwtService;
+import org.killze.acgbox.service.EmailVerificationService;
 import org.killze.acgbox.service.impl.JwtServiceImpl;
 import org.killze.acgbox.service.impl.LoginServiceImpl;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -87,6 +88,9 @@ class LogoutControllerTests {
 
     @MockitoBean
     private UserAccountMapper userAccountMapper;
+
+    @MockitoBean
+    private EmailVerificationService emailVerificationService;
 
     private UserAccount currentUser;
     private UserAccount otherUser;

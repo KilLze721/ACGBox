@@ -98,12 +98,17 @@ class EmailVerificationServiceImplTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"CHANGE", "UNBIND"})
+    @ValueSource(strings = {"CHANGE", "UNBIND", "LOGIN"})
     void shouldSendCorrectOperationText(String purpose) {
         service.sendCode(2L, 7L, purpose, "Old@Example.com");
         ArgumentCaptor<SimpleMailMessage> captor = ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mailSender).send(captor.capture());
-        assertTrue(captor.getValue().getText().contains("CHANGE".equals(purpose) ? "更换账号邮箱" : "解除此邮箱"));
+        String operation = switch (purpose) {
+            case "CHANGE" -> "更换账号邮箱";
+            case "UNBIND" -> "解除此邮箱";
+            default -> "登录管理端";
+        };
+        assertTrue(captor.getValue().getText().contains(operation));
     }
 
     @Test
@@ -206,9 +211,10 @@ class EmailVerificationServiceImplTests {
         service.verifyAndConsume(2L, 8L, "BIND", "a@example.com", "123456");
         service.verifyAndConsume(2L, 7L, "UNBIND", "a@example.com", "123456");
         service.verifyAndConsume(2L, 7L, "BIND", "A@example.com", "123456");
+        service.verifyAndConsume(2L, 7L, "LOGIN", "a@example.com", "123456");
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
-        verify(redis, times(5)).execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>any(), anyList(), captor.capture());
-        assertEquals(5, new HashSet<>(captor.getAllValues()).size());
+        verify(redis, times(6)).execute(org.mockito.ArgumentMatchers.<RedisScript<Long>>any(), anyList(), captor.capture());
+        assertEquals(6, new HashSet<>(captor.getAllValues()).size());
         verifyNoInteractions(mailSender);
     }
 

@@ -72,6 +72,7 @@ public class EmailVerificationServiceImpl implements EmailVerificationService {
             case "BIND" -> "绑定或验证此邮箱";
             case "CHANGE" -> "确认更换账号邮箱";
             case "UNBIND" -> "解除此邮箱与账号的绑定";
+            case "LOGIN" -> "使用邮箱验证码登录管理端";
             default -> throw new IllegalArgumentException("验证码用途无效");
         };
         String key = buildKey(id, tokenVersion, purpose, email);
