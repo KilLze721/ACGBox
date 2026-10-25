@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import org.killze.acgbox.dto.content.AnimeDTO;
 import org.killze.acgbox.dto.content.AnimePageDTO;
 import org.killze.acgbox.dto.content.CompanyRelationDTO;
+import org.killze.acgbox.dto.content.PersonRelationDTO;
+import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.entity.content.*;
 import org.killze.acgbox.mapper.*;
 import org.killze.acgbox.vo.content.AnimeVO;
@@ -21,6 +23,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,6 +41,11 @@ class AnimeAssociationSortOrderTests {
     private AliasMapper aliasMapper;
     private CompanyRelationMapper companyRelationMapper;
     private CompanyMapper companyMapper;
+    private PersonMapper personMapper;
+    private PersonRelationMapper personRelationMapper;
+    private final Map<Long, Person> people = new HashMap<>();
+    private final List<PersonRelation> personRelations = new ArrayList<>();
+    private final AtomicLong personRelationId = new AtomicLong(100);
     private Anime anime;
     private final List<Alias> aliases = new ArrayList<>();
     private final List<CompanyRelation> relations = new ArrayList<>();
@@ -47,7 +56,7 @@ class AnimeAssociationSortOrderTests {
     void setUp() {
         for (Class<?> entity : List.of(Anime.class, Alias.class, CompanyRelation.class, Company.class,
                 ExternalLink.class, TagRelation.class, SeriesItem.class, PersonalRating.class,
-                BroadcastType.class, AdaptationType.class, Region.class)) {
+                BroadcastType.class, AdaptationType.class, Region.class, Person.class, PersonRelation.class)) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entity);
         }
         service = new AnimeServiceImpl();
@@ -55,6 +64,36 @@ class AnimeAssociationSortOrderTests {
         aliasMapper = mock(AliasMapper.class);
         companyRelationMapper = mock(CompanyRelationMapper.class);
         companyMapper = mock(CompanyMapper.class);
+        personMapper = mock(PersonMapper.class);
+        personRelationMapper = mock(PersonRelationMapper.class);
+        ReflectionTestUtils.setField(service, "personMapper", personMapper);
+        ReflectionTestUtils.setField(service, "personRelationMapper", personRelationMapper);
+        people.put(3L, Person.builder().id(3L).name("人员三").build());
+        people.put(9L, Person.builder().id(9L).name("人员九").build());
+        when(personMapper.selectByIds(anyCollection())).thenAnswer(invocation -> {
+            java.util.Collection<Long> ids = invocation.getArgument(0);
+            return people.values().stream().filter(person -> ids.contains(person.getId())).toList();
+        });
+        when(personRelationMapper.insert(any(PersonRelation.class))).thenAnswer(invocation -> {
+            PersonRelation relation = invocation.getArgument(0);
+            relation.setId(personRelationId.incrementAndGet());
+            personRelations.add(relation);
+            return 1;
+        });
+        when(personRelationMapper.selectList(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<PersonRelation> query = invocation.getArgument(0);
+            assertAssociationQuery(query, true);
+            return personRelations.stream().filter(relation -> relation.getTargetType().equals("ANIME")
+                            && query.getParamNameValuePairs().containsValue(relation.getTargetId()))
+                    .sorted(Comparator.comparing(PersonRelation::getSortOrder).thenComparing(PersonRelation::getId)).toList();
+        });
+        when(personRelationMapper.delete(any())).thenAnswer(invocation -> {
+            LambdaQueryWrapper<PersonRelation> query = invocation.getArgument(0);
+            assertAssociationQuery(query, false);
+            personRelations.removeIf(relation -> relation.getTargetType().equals("ANIME")
+                    && query.getParamNameValuePairs().containsValue(relation.getTargetId()));
+            return 1;
+        });
         ReflectionTestUtils.setField(service, "animeMapper", animeMapper);
         ReflectionTestUtils.setField(service, "aliasMapper", aliasMapper);
         ReflectionTestUtils.setField(service, "companyRelationMapper", companyRelationMapper);
@@ -242,6 +281,107 @@ class AnimeAssociationSortOrderTests {
     void createAndUpdateRemainTransactional() throws Exception {
         assertNotNull(AnimeServiceImpl.class.getMethod("createAnime", AnimeDTO.class).getAnnotation(Transactional.class));
         assertNotNull(AnimeServiceImpl.class.getMethod("updateAnime", AnimeDTO.class).getAnnotation(Transactional.class));
+    }
+
+    @Test
+    void personsSupportMultipleRolesStableSortAndCurrentNamesWithBatchReads() {
+        AnimeDTO dto = animeDTO();
+        dto.setPersons(List.of(person(9L, " 导演 ", 2L), person(3L, "音乐", 0L), person(9L, "脚本", null)));
+        AnimeVO created = service.createAnime(dto);
+        assertEquals(List.of("音乐", "导演", "脚本"), created.getPersons().stream().map(value -> value.getRole()).toList());
+        assertEquals(List.of(0L, 2L, 2L), created.getPersons().stream().map(value -> value.getSortOrder()).toList());
+        assertEquals(created.getPersons(), service.getAnimeById(1L).getPersons());
+        people.get(9L).setName("新署名");
+        assertEquals("新署名", service.getAnimeById(1L).getPersons().get(1).getPersonName());
+        clearInvocations(personMapper, personRelationMapper);
+        var rows = page();
+        assertEquals(List.of(3L, 9L, 9L), rows.getFirst().getPersons().stream().map(value -> value.getPersonId()).toList());
+        assertTrue(rows.getLast().getPersons().isEmpty());
+        verify(personRelationMapper).selectList(any());
+        verify(personMapper).selectByIds(anyCollection());
+    }
+
+    @Test
+    void invalidPersonsFailBeforeCreateOrUpdateWrites() {
+        List<List<PersonRelationDTO>> invalid = List.of(
+                List.of(person(99L, "导演", 0L)), List.of(person(9L, " ", 0L)),
+                List.of(person(9L, "导".repeat(51), 0L)), List.of(person(null, "导演", 0L)),
+                List.of(person(9L, "导演", 0L), person(9L, " 导演 ", 1L)),
+                List.of(person(9L, "导演", -1L)), List.of(person(9L, "导演", 2147483648L)),
+                Arrays.asList((PersonRelationDTO) null));
+        for (List<PersonRelationDTO> persons : invalid) {
+            AnimeDTO dto = animeDTO();
+            dto.setPersons(persons);
+            assertThrows(BusinessException.class, () -> service.createAnime(dto));
+            dto.setId(1L);
+            assertThrows(BusinessException.class, () -> service.updateAnime(dto));
+        }
+        verify(animeMapper, never()).insert(any(Anime.class));
+        verify(animeMapper, never()).update(isNull(), any());
+        verify(personRelationMapper, never()).insert(any(PersonRelation.class));
+        verify(personRelationMapper, never()).delete(any());
+    }
+
+    @Test
+    void omittedPersonsPreserveRelationsButEmptyArrayClearsOnlyThisAnime() {
+        AnimeDTO dto = animeDTO();
+        dto.setPersons(List.of(person(9L, "导演", 0L)));
+        service.createAnime(dto);
+        personRelations.add(PersonRelation.builder().id(2L).targetType("BOOK").targetId(1L)
+                .personId(9L).role("作者").sortOrder(0L).build());
+        personRelations.add(PersonRelation.builder().id(3L).targetType("ANIME").targetId(2L)
+                .personId(3L).role("导演").sortOrder(0L).build());
+        clearInvocations(personRelationMapper);
+        AnimeDTO update = animeDTO();
+        update.setId(1L);
+        assertEquals(1, service.updateAnime(update).getPersons().size());
+        verify(personRelationMapper, never()).delete(any());
+        update.setPersons(List.of());
+        assertTrue(service.updateAnime(update).getPersons().isEmpty());
+        assertEquals(2, personRelations.size());
+        assertEquals(2, people.size());
+    }
+
+    @Test
+    void deleteAnimeRemovesOnlyItsPersonRelationsAndKeepsPersonArchives() {
+        personRelations.add(PersonRelation.builder().id(1L).targetType("ANIME").targetId(1L)
+                .personId(9L).role("导演").sortOrder(0L).build());
+        personRelations.add(PersonRelation.builder().id(2L).targetType("BOOK").targetId(1L)
+                .personId(9L).role("作者").sortOrder(0L).build());
+        service.deleteAnime(List.of(1L));
+        assertEquals(List.of("BOOK"), personRelations.stream().map(PersonRelation::getTargetType).toList());
+        verify(personMapper, never()).deleteByIds(anyCollection());
+        verify(animeMapper).deleteByIds(List.of(1L));
+        assertEquals(2, people.size());
+    }
+
+    private PersonRelationDTO person(Long personId, String role, Long sortOrder) {
+        PersonRelationDTO dto = new PersonRelationDTO();
+        dto.setPersonId(personId);
+        dto.setRole(role);
+        dto.setSortOrder(sortOrder);
+        return dto;
+    }
+
+    @Test
+    void associationFilterStillReturnsCompletePersonsForEachAnime() {
+        personRelations.add(PersonRelation.builder().id(1L).targetType("ANIME").targetId(1L)
+                .personId(9L).role("导演").sortOrder(0L).build());
+        personRelations.add(PersonRelation.builder().id(2L).targetType("ANIME").targetId(1L)
+                .personId(3L).role("音乐").sortOrder(1L).build());
+        Page<Anime> result = new Page<>(1, 20);
+        result.setRecords(List.of(anime));
+        result.setTotal(1L);
+        when(animeMapper.selectAnimePage(any(), any(), isNull(), isNull())).thenReturn(result);
+        AnimePageDTO dto = new AnimePageDTO();
+        dto.setPersonId(9L);
+        dto.setSeriesId(8L);
+        dto.setCompanyId(3L);
+        var response = service.pageAnime(dto);
+        assertEquals(List.of(9L, 3L), response.getRows().getFirst().getPersons().stream()
+                .map(value -> value.getPersonId()).toList());
+        verify(personMapper).selectByIds(anyCollection());
+        verify(personRelationMapper).selectList(any());
     }
 
     private void assertAssociationQuery(LambdaQueryWrapper<?> query, boolean ordered) {

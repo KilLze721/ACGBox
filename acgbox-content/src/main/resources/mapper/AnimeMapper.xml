@@ -98,6 +98,24 @@
                       AND cr.company_id = #{pageDTO.companyId}
                 )
             </if>
+            <if test="pageDTO.personId != null">
+                AND EXISTS (
+                    SELECT 1
+                    FROM person_relation per
+                    WHERE per.target_type = 'ANIME'
+                      AND per.target_id = a.id
+                      AND per.person_id = #{pageDTO.personId}
+                )
+            </if>
+            <if test="pageDTO.seriesId != null">
+                AND EXISTS (
+                    SELECT 1
+                    FROM series_item si
+                    WHERE si.work_type = 'anime'
+                      AND si.work_id = a.id
+                      AND si.series_id = #{pageDTO.seriesId}
+                )
+            </if>
             <if test="pageDTO.ratingMin != null">
                 AND pr.score &gt;= #{pageDTO.ratingMin}
             </if>

@@ -8,6 +8,7 @@ import org.killze.acgbox.dto.content.AnimeDTO;
 import org.killze.acgbox.dto.content.AnimePageDTO;
 import org.killze.acgbox.dto.content.CompanyRelationDTO;
 import org.killze.acgbox.dto.content.ExternalLinkDTO;
+import org.killze.acgbox.dto.content.PersonRelationDTO;
 import org.killze.acgbox.entity.content.*;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.AdaptationTypeMapper;
@@ -18,6 +19,8 @@ import org.killze.acgbox.mapper.CompanyMapper;
 import org.killze.acgbox.mapper.CompanyRelationMapper;
 import org.killze.acgbox.mapper.ExternalLinkMapper;
 import org.killze.acgbox.mapper.PersonalRatingMapper;
+import org.killze.acgbox.mapper.PersonMapper;
+import org.killze.acgbox.mapper.PersonRelationMapper;
 import org.killze.acgbox.mapper.RegionMapper;
 import org.killze.acgbox.mapper.SeriesItemMapper;
 import org.killze.acgbox.mapper.SeriesMapper;
@@ -32,6 +35,7 @@ import org.killze.acgbox.vo.content.AnimeVO;
 import org.killze.acgbox.vo.content.BroadcastTypeVO;
 import org.killze.acgbox.vo.content.CompanyRelationVO;
 import org.killze.acgbox.vo.content.ExternalLinkVO;
+import org.killze.acgbox.vo.content.PersonRelationVO;
 import org.killze.acgbox.vo.content.RegionVO;
 import org.killze.acgbox.vo.content.SeriesVO;
 import org.killze.acgbox.vo.content.TagVO;
@@ -47,6 +51,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -85,6 +90,12 @@ public class AnimeServiceImpl implements AnimeService {
     private CompanyMapper companyMapper;
 
     @Autowired
+    private PersonMapper personMapper;
+
+    @Autowired
+    private PersonRelationMapper personRelationMapper;
+
+    @Autowired
     private ExternalLinkMapper externalLinkMapper;
 
     @Autowired
@@ -111,6 +122,8 @@ public class AnimeServiceImpl implements AnimeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AnimeVO createAnime(AnimeDTO animeDTO) {
+        // 在写入动画前校验人员及职责，避免无效人物关联进入保存流程。
+        List<PersonRelationDTO> persons = buildPersons(animeDTO.getPersons());
         // 判断此动画是否存在。
         Anime exist = animeMapper.selectOne(
                 new LambdaQueryWrapper<Anime>()
@@ -134,6 +147,8 @@ public class AnimeServiceImpl implements AnimeService {
                 .updatedAt(LocalDateTime.now())
                 .build();
         animeMapper.insert(anime);
+        // 创建动画人物关联，关联目标由当前动画确定。
+        saveAnimePersons(anime.getId(), persons);
         // 创建动画别名。
         List<String> aliasNames = buildAliasNames(animeDTO.getAliasNames());
         for (int i = 0; i < aliasNames.size(); i++) {
@@ -234,6 +249,7 @@ public class AnimeServiceImpl implements AnimeService {
                 .description(anime.getDescription())
                 .aliasNames(aliasNames)
                 .companies(buildCompanyRelationVOList(companies))
+                .persons(buildDetailPersonRelationVOList(anime.getId()))
                 .externalLinks(buildExternalLinkVOList(externalLinks))
                 .tagIds(tagIds)
                 .seriesId(seriesId)
@@ -380,6 +396,7 @@ public class AnimeServiceImpl implements AnimeService {
                 .description(anime.getDescription())
                 .aliasNames(aliasNames)
                 .companies(companies)
+                .persons(buildDetailPersonRelationVOList(anime.getId()))
                 .externalLinks(externalLinks)
                 .tagIds(tagIds)
                 .seriesId(seriesId)
@@ -536,6 +553,7 @@ public class AnimeServiceImpl implements AnimeService {
         List<String> aliasNames = buildAliasNames(animeDTO.getAliasNames());
         List<CompanyRelationDTO> companies = buildCompanies(animeDTO.getCompanies());
         List<ExternalLinkDTO> externalLinks = buildExternalLinks(animeDTO.getExternalLinks());
+        List<PersonRelationDTO> persons = animeDTO.getPersons() == null ? null : buildPersons(animeDTO.getPersons());
         List<Long> tagIds = buildTagIds(animeDTO.getTagIds());
         Long seriesId = buildUpdateSeriesId(animeDTO.getSeriesId());
         Long seriesSortOrder = seriesId == null
@@ -560,6 +578,13 @@ public class AnimeServiceImpl implements AnimeService {
         // 使用前端提交的最终数据覆盖动画关联信息。
         replaceAnimeAliases(anime.getId(), aliasNames);
         replaceAnimeCompanies(anime.getId(), companies);
+        // 旧请求未传或传 null 时保留人员关联，明确空数组才执行清空。
+        if (persons != null) {
+            personRelationMapper.delete(new LambdaQueryWrapper<PersonRelation>()
+                    .eq(PersonRelation::getTargetType, "ANIME")
+                    .eq(PersonRelation::getTargetId, anime.getId()));
+            saveAnimePersons(anime.getId(), persons);
+        }
         replaceAnimeExternalLinks(anime.getId(), externalLinks);
         replaceAnimeTags(anime.getId(), tagIds);
         replaceAnimeSeries(anime.getId(), seriesId, seriesSortOrder);
@@ -771,6 +796,10 @@ public class AnimeServiceImpl implements AnimeService {
                         .eq(CompanyRelation::getTargetType, "ANIME")
                         .in(CompanyRelation::getTargetId, ids)
         );
+        // 只清理当前动画的人物关联，不删除人物档案或其他类型的关联。
+        personRelationMapper.delete(new LambdaQueryWrapper<PersonRelation>()
+                .eq(PersonRelation::getTargetType, "ANIME")
+                .in(PersonRelation::getTargetId, ids));
         // 删除动画外部链接。
         externalLinkMapper.delete(
                 new LambdaQueryWrapper<ExternalLink>()
@@ -882,6 +911,18 @@ public class AnimeServiceImpl implements AnimeService {
     }
 
     /**
+     * 公司、人物和系列按关联 ID 筛选，不预查实体存在性，合法无结果时返回空分页。
+     *
+     * @param id 关联实体 ID
+     * @param fieldName 查询字段名称
+     */
+    private void validatePageAssociationId(Long id, String fieldName) {
+        if (id != null && (id < 1L || id > 2147483647L)) {
+            throw new BusinessException(fieldName + " 必须处于 1 到 2147483647 之间");
+        }
+    }
+
+    /**
      * 5.3 规范化标签 ID 列表。
      *
      * @param tagIds 标签 ID 列表
@@ -968,9 +1009,9 @@ public class AnimeServiceImpl implements AnimeService {
         if (pageDTO.getRegionId() != null && regionMapper.selectById(pageDTO.getRegionId()) == null) {
             throw new BusinessException("regionId 对应的地区不存在");
         }
-        if (pageDTO.getCompanyId() != null && companyMapper.selectById(pageDTO.getCompanyId()) == null) {
-            throw new BusinessException("companyId 对应的公司不存在");
-        }
+        validatePageAssociationId(pageDTO.getCompanyId(), "companyId");
+        validatePageAssociationId(pageDTO.getPersonId(), "personId");
+        validatePageAssociationId(pageDTO.getSeriesId(), "seriesId");
         if (pageDTO.getStatus() != null && (pageDTO.getStatus() < 1L || pageDTO.getStatus() > 4L)) {
             throw new BusinessException("status 仅支持 1、2、3、4");
         }
@@ -1067,6 +1108,7 @@ public class AnimeServiceImpl implements AnimeService {
         Map<Long, List<String>> aliasNamesMap = buildPageAliasNamesMap(animeIds);
         Map<Long, List<TagVO>> tagsMap = buildPageTagsMap(animeIds);
         Map<Long, List<AnimeCompanyVO>> companiesMap = buildPageCompaniesMap(animeIds);
+        Map<Long, List<PersonRelationVO>> personsMap = buildPagePersonsMap(animeIds);
         Map<Long, List<ExternalLinkVO>> externalLinksMap = buildPageExternalLinksMap(animeIds);
         Map<Long, BigDecimal> ratingMap = buildPageRatingMap(animeIds);
         Map<Long, SeriesVO> seriesMap = buildPageSeriesMap(animeIds);
@@ -1111,6 +1153,7 @@ public class AnimeServiceImpl implements AnimeService {
                             .status(anime.getStatus())
                             .region(buildRegionVO(region))
                             .companies(companiesMap.getOrDefault(anime.getId(), List.of()))
+                            .persons(personsMap.getOrDefault(anime.getId(), List.of()))
                             .externalLinks(externalLinksMap.getOrDefault(anime.getId(), List.of()))
                             .personalRating(ratingMap.get(anime.getId()))
                             .series(seriesMap.get(anime.getId()))
@@ -1458,6 +1501,114 @@ public class AnimeServiceImpl implements AnimeService {
             tagMap.putIfAbsent(tagId, tagId);
         });
         return new ArrayList<>(tagMap.values());
+    }
+
+    /**
+     * 校验人物关联，保留同人不同职责，拒绝同人同职责重复及无效署名排序。
+     *
+     * @param persons 请求中的人员关联
+     * @return 已去除职责首尾空格并填充缺省排序的关联列表
+     */
+    private List<PersonRelationDTO> buildPersons(List<PersonRelationDTO> persons) {
+        if (persons == null || persons.isEmpty()) {
+            return List.of();
+        }
+        List<PersonRelationDTO> result = new ArrayList<>();
+        Set<PersonRole> roles = new HashSet<>();
+        Set<Long> personIds = new HashSet<>();
+        for (int i = 0; i < persons.size(); i++) {
+            PersonRelationDTO person = persons.get(i);
+            if (person == null || person.getPersonId() == null || person.getPersonId() <= 0) {
+                throw new BusinessException("请选择有效的人物");
+            }
+            if (!StringUtils.hasText(person.getRole())) {
+                throw new BusinessException("人物职责不能为空");
+            }
+            String role = person.getRole().trim();
+            if (role.codePointCount(0, role.length()) > 50) {
+                throw new BusinessException("人物职责不能超过 50 字符");
+            }
+            long sortOrder = person.getSortOrder() == null ? i : person.getSortOrder();
+            if (sortOrder < 0 || sortOrder > 2147483647L) {
+                throw new BusinessException("人物排序值必须处于 0 到 2147483647 之间");
+            }
+            if (!roles.add(new PersonRole(person.getPersonId(), role))) {
+                throw new BusinessException("同一人物的相同职责不能重复添加");
+            }
+            PersonRelationDTO dto = new PersonRelationDTO();
+            dto.setPersonId(person.getPersonId());
+            dto.setRole(role);
+            dto.setSortOrder(sortOrder);
+            result.add(dto);
+            personIds.add(person.getPersonId());
+        }
+        if (personMapper.selectByIds(personIds).size() != personIds.size()) {
+            throw new BusinessException("所选人物不存在，请刷新后重新选择");
+        }
+        return result;
+    }
+
+    /**
+     * 保存已校验的动画人物关联，不接收客户端提供的目标类型和关联主键。
+     *
+     * @param animeId 当前动画 ID
+     * @param persons 已校验的人员关联
+     */
+    private void saveAnimePersons(Long animeId, List<PersonRelationDTO> persons) {
+        persons.forEach(person -> personRelationMapper.insert(PersonRelation.builder()
+                .targetType("ANIME")
+                .targetId(animeId)
+                .personId(person.getPersonId())
+                .role(person.getRole())
+                .sortOrder(person.getSortOrder())
+                .build()));
+    }
+
+    /**
+     * 查询动画人员详情，与分页共用排序和当前人物姓名的读取规则。
+     *
+     * @param animeId 动画 ID
+     * @return 人员关联列表，没有关联时返回空列表
+     */
+    private List<PersonRelationVO> buildDetailPersonRelationVOList(Long animeId) {
+        return buildPagePersonsMap(List.of(animeId)).getOrDefault(animeId, List.of());
+    }
+
+    /**
+     * 按当前页动画批量查询关联及人员，避免逐部动画或逐个人员查询。
+     *
+     * @param animeIds 动画 ID 列表
+     * @return 各动画按署名排序的人物关联
+     */
+    private Map<Long, List<PersonRelationVO>> buildPagePersonsMap(List<Long> animeIds) {
+        List<PersonRelation> relations = personRelationMapper.selectList(new LambdaQueryWrapper<PersonRelation>()
+                .eq(PersonRelation::getTargetType, "ANIME")
+                .in(PersonRelation::getTargetId, animeIds)
+                .orderByAsc(PersonRelation::getSortOrder)
+                .orderByAsc(PersonRelation::getId));
+        Set<Long> personIds = relations.stream().map(PersonRelation::getPersonId).collect(Collectors.toSet());
+        List<Person> persons = personIds.isEmpty() ? List.of() : personMapper.selectByIds(personIds);
+        Map<Long, Person> personMap = buildEntityMap(persons, Person::getId);
+        Map<Long, List<PersonRelationVO>> result = new HashMap<>();
+        relations.forEach(relation -> {
+            Person person = personMap.get(relation.getPersonId());
+            if (person != null) {
+                result.computeIfAbsent(relation.getTargetId(), key -> new ArrayList<>())
+                        .add(PersonRelationVO.builder()
+                                .personId(person.getId())
+                                .personName(person.getName())
+                                .role(relation.getRole())
+                                .sortOrder(relation.getSortOrder())
+                                .build());
+            }
+        });
+        return result;
+    }
+
+    /**
+     * 使用人物 ID 和清洗后的职责共同判重，允许同一人员兼任不同职责。
+     */
+    private record PersonRole(Long personId, String role) {
     }
 
 

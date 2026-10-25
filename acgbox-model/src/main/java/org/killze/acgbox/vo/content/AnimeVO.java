@@ -75,6 +75,11 @@ public class AnimeVO {
     private List<CompanyRelationVO> companies;
 
     /**
+     * 动画创作人员，按署名排序值和关联 ID 升序。
+     */
+    private List<PersonRelationVO> persons;
+
+    /**
      * 动画外部链接列表
      */
     private List<ExternalLinkVO> externalLinks;

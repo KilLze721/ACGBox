@@ -68,6 +68,16 @@ public class AnimePageDTO extends PageDTO {
     private Long companyId;
 
     /**
+     * 创作人员 ID，匹配该人物在动画中的全部职责。
+     */
+    private Long personId;
+
+    /**
+     * 系列 ID，按已有系列的动画条目筛选。
+     */
+    private Long seriesId;
+
+    /**
      * 最低个人评分
      */
     @DecimalMin(value = "0.0", message = "ratingMin 不能小于 0")

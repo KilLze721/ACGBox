@@ -119,6 +119,8 @@ class SortOrderAcceptanceTests {
         ReflectionTestUtils.setField(animeService, "aliasMapper", aliasMapper);
         ReflectionTestUtils.setField(animeService, "companyRelationMapper", relationMapper);
         ReflectionTestUtils.setField(animeService, "companyMapper", companyMapper);
+        ReflectionTestUtils.setField(animeService, "personMapper", mock(PersonMapper.class));
+        ReflectionTestUtils.setField(animeService, "personRelationMapper", mock(PersonRelationMapper.class));
         ReflectionTestUtils.setField(animeService, "broadcastTypeMapper", broadcastMapper);
         ReflectionTestUtils.setField(animeService, "adaptationTypeMapper", adaptationMapper);
         ReflectionTestUtils.setField(animeService, "regionMapper", mock(RegionMapper.class));

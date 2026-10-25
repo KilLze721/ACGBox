@@ -86,6 +86,12 @@ public class AnimeDTO {
     private List<CompanyRelationDTO> companies;
 
     /**
+     * 动画创作人员，修改时未传或为空保留原关联，明确空数组才清空。
+     */
+    @Valid
+    private List<@NotNull(message = "人物关联项不能为空") PersonRelationDTO> persons;
+
+    /**
      * 动画外部链接列表
      */
     @Valid

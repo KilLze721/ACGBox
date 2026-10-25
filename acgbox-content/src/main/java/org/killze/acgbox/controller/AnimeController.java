@@ -10,9 +10,11 @@ import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.AnimePageVO;
 import org.killze.acgbox.vo.content.AnimeVO;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.beans.PropertyEditorSupport;
 
 /**
  * 动画控制器
@@ -26,6 +28,21 @@ public class AnimeController {
 
     @Autowired
     private AnimeService animeService;
+
+    /**
+     * 关联筛选参数仅按十进制整数解析，显式传空或非法格式时拒绝绑定。
+     */
+    @InitBinder
+    public void bindAssociationIds(WebDataBinder binder) {
+        for (String field : List.of("companyId", "personId", "seriesId")) {
+            binder.registerCustomEditor(Long.class, field, new PropertyEditorSupport() {
+                @Override
+                public void setAsText(String text) {
+                    setValue(Long.valueOf(text));
+                }
+            });
+        }
+    }
 
     /**
      * 创建动画

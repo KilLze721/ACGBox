@@ -3,8 +3,15 @@ package org.killze.acgbox.controller;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.killze.acgbox.dto.content.AdaptationTypeDTO;
 import org.killze.acgbox.dto.content.BroadcastTypeDTO;
+import org.killze.acgbox.dto.content.AnimePageDTO;
+import org.killze.acgbox.entity.content.Anime;
+import org.killze.acgbox.mapper.AnimeMapper;
+import org.killze.acgbox.service.impl.AnimeServiceImpl;
+import org.mockito.ArgumentCaptor;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.killze.acgbox.exception.GlobalExceptionHandler;
 import org.killze.acgbox.service.AdaptationTypeService;
 import org.killze.acgbox.service.AnimeService;
@@ -17,8 +24,10 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -96,5 +105,80 @@ class SortOrderValidationTests {
         mockMvc.perform(post("/" + catalog + "/" + operation).contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(500));
         verifyNoInteractions(broadcastTypeService, adaptationTypeService, animeService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"-1", "2147483648", "1.5", "1.0", "\"1\""})
+    void personSortRejectsNegativeOverflowFractionAndStringBeforeService(String sortOrder) throws Exception {
+        for (String operation : java.util.List.of("create", "update")) {
+            String body = """
+                    {"id":1,"name":"测试","broadcastTypeId":1,"adaptationTypeId":1,"regionId":1,
+                     "airDate":"2026-01-01","status":3,"persons":[{"personId":1,"role":"导演","sortOrder":%s}]}
+                    """.formatted(sortOrder);
+            mockMvc.perform(post("/anime/" + operation).contentType(MediaType.APPLICATION_JSON).content(body))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(500));
+        }
+        verifyNoInteractions(animeService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " ", "abc", "0", "-1", "1.5", "0x1", "1 2", "2147483648", "9223372036854775808"})
+    void associationQueryRejectsInvalidIdsInsteadOfIgnoringThem(String value) throws Exception {
+        AnimeMapper mapper = mock(AnimeMapper.class);
+        MockMvc mvc = associationPageMvc(mapper);
+        for (String field : java.util.List.of("companyId", "personId", "seriesId")) {
+            mvc.perform(get("/anime/page").param(field, value))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(500));
+        }
+        verifyNoInteractions(mapper);
+    }
+
+    @ParameterizedTest
+    @ValueSource(longs = {1L, 2147483647L})
+    void validUnknownAssociationIdsReturnNormalEmptyPages(long id) throws Exception {
+        AnimeMapper mapper = mock(AnimeMapper.class);
+        MockMvc mvc = associationPageMvc(mapper);
+        for (String field : java.util.List.of("companyId", "personId", "seriesId")) {
+            mvc.perform(get("/anime/page").param(field, String.valueOf(id)))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.code").value(200))
+                    .andExpect(jsonPath("$.data.pageNum").value(1))
+                    .andExpect(jsonPath("$.data.pageSize").value(20))
+                    .andExpect(jsonPath("$.data.total").value(0))
+                    .andExpect(jsonPath("$.data.pages").value(0))
+                    .andExpect(jsonPath("$.data.rows").isEmpty());
+        }
+    }
+
+    @org.junit.jupiter.api.Test
+    void combinedAssociationParametersReachExistingPageQueryWithOriginalSorting() throws Exception {
+        AnimeMapper mapper = mock(AnimeMapper.class);
+        associationPageMvc(mapper).perform(get("/anime/page").param("personId", "12").param("seriesId", "8")
+                        .param("companyId", "3").param("keyword", " abc ").param("pageNum", "2").param("pageSize", "10")
+                        .param("sortBy", "PERSONAL_RATING").param("sortDirection", "ASC"))
+                .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.pageNum").value(2));
+        ArgumentCaptor<AnimePageDTO> dto = ArgumentCaptor.forClass(AnimePageDTO.class);
+        verify(mapper).selectAnimePage(any(), dto.capture(), isNull(), isNull());
+        assertEquals(12L, dto.getValue().getPersonId());
+        assertEquals(8L, dto.getValue().getSeriesId());
+        assertEquals(3L, dto.getValue().getCompanyId());
+        assertEquals("abc", dto.getValue().getKeyword());
+        assertEquals("PERSONAL_RATING", dto.getValue().getSortBy());
+        assertEquals("ASC", dto.getValue().getSortDirection());
+    }
+
+    /**
+     * 使用真实分页参数处理和模拟主查询，不配置或访问外部数据源。
+     */
+    private MockMvc associationPageMvc(AnimeMapper mapper) {
+        AnimeServiceImpl service = new AnimeServiceImpl();
+        ReflectionTestUtils.setField(service, "animeMapper", mapper);
+        when(mapper.selectAnimePage(any(), any(), isNull(), isNull())).thenAnswer(invocation -> {
+            Page<Anime> page = invocation.getArgument(0);
+            page.setRecords(java.util.List.of());
+            return page;
+        });
+        AnimeController controller = new AnimeController();
+        ReflectionTestUtils.setField(controller, "animeService", service);
+        return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 }
