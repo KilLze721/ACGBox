@@ -19,4 +19,9 @@ public class BroadcastTypeVO {
      * 放送类型名称，例如 TV、WEB、OVA、剧场版。
      */
     private String name;
+
+    /**
+     * 排序值，越小越靠前，同值时按 ID 升序。
+     */
+    private Long sortOrder;
 }

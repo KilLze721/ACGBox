@@ -49,6 +49,7 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         // 创建放送类型
         BroadcastType broadcastType = BroadcastType.builder()
                 .name(dto.getName())
+                .sortOrder(dto.getSortOrder() == null ? 0L : dto.getSortOrder())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -57,6 +58,7 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         return BroadcastTypeVO.builder()
                 .id(broadcastType.getId())
                 .name(broadcastType.getName())
+                .sortOrder(broadcastType.getSortOrder())
                 .build();
     }
 
@@ -84,12 +86,16 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         }
         // 修改放送类型
         broadcastType.setName(dto.getName());
+        if (dto.getSortOrder() != null) {
+            broadcastType.setSortOrder(dto.getSortOrder());
+        }
         broadcastType.setUpdatedAt(LocalDateTime.now());
         broadcastTypeMapper.updateById(broadcastType);
         // 返回放送类型信息
         return BroadcastTypeVO.builder()
                 .id(broadcastType.getId())
                 .name(broadcastType.getName())
+                .sortOrder(broadcastType.getSortOrder())
                 .build();
     }
 
@@ -135,6 +141,7 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         return BroadcastTypeVO.builder()
                 .id(broadcastType.getId())
                 .name(broadcastType.getName())
+                .sortOrder(broadcastType.getSortOrder())
                 .build();
     }
 
@@ -148,13 +155,15 @@ public class BroadcastTypeServiceImpl implements BroadcastTypeService {
         // 查询全部放送类型
         List<BroadcastType> list = broadcastTypeMapper.selectList(
                 new LambdaQueryWrapper<BroadcastType>()
-                        .orderByAsc(BroadcastType::getName)
+                        .orderByAsc(BroadcastType::getSortOrder)
+                        .orderByAsc(BroadcastType::getId)
         );
         // 返回放送类型列表
         return list.stream()
                 .map(broadcastType -> BroadcastTypeVO.builder()
                         .id(broadcastType.getId())
                         .name(broadcastType.getName())
+                        .sortOrder(broadcastType.getSortOrder())
                         .build())
                 .toList();
     }

@@ -47,4 +47,10 @@ public class CompanyRelation {
      * 公司在对象中的职责，例如制作、发行、企划。
      */
     private String role;
+
+    /**
+     * 同一关联对象内的排序值，越小越靠前，同值时按关联 ID 升序。
+     */
+    @TableField("sort_order")
+    private Long sortOrder;
 }

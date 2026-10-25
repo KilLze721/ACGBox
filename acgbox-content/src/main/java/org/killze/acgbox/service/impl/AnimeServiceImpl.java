@@ -45,6 +45,7 @@ import java.time.DateTimeException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -135,23 +136,29 @@ public class AnimeServiceImpl implements AnimeService {
         animeMapper.insert(anime);
         // 创建动画别名。
         List<String> aliasNames = buildAliasNames(animeDTO.getAliasNames());
-        aliasNames.forEach(aliasName -> aliasMapper.insert(
-                Alias.builder()
-                        .targetType("ANIME")
-                        .targetId(anime.getId())
-                        .aliasName(aliasName)
-                        .build()
-        ));
+        for (int i = 0; i < aliasNames.size(); i++) {
+            aliasMapper.insert(Alias.builder()
+                    .targetType("ANIME")
+                    .targetId(anime.getId())
+                    .aliasName(aliasNames.get(i))
+                    .sortOrder((long) i)
+                    .build());
+        }
         // 创建动画公司关联。
         List<CompanyRelationDTO> companies = buildCompanies(animeDTO.getCompanies());
-        companies.forEach(company -> companyRelationMapper.insert(
-                CompanyRelation.builder()
-                        .targetType("ANIME")
-                        .targetId(anime.getId())
-                        .companyId(company.getCompanyId())
-                        .role(company.getRole())
-                        .build()
-        ));
+        for (int i = 0; i < companies.size(); i++) {
+            CompanyRelationDTO company = companies.get(i);
+            if (company.getSortOrder() == null) {
+                company.setSortOrder((long) i);
+            }
+            companyRelationMapper.insert(CompanyRelation.builder()
+                    .targetType("ANIME")
+                    .targetId(anime.getId())
+                    .companyId(company.getCompanyId())
+                    .role(company.getRole())
+                    .sortOrder(company.getSortOrder())
+                    .build());
+        }
         // 创建动画外部链接。
         List<ExternalLinkDTO> externalLinks = buildExternalLinks(animeDTO.getExternalLinks());
         externalLinks.forEach(externalLink -> externalLinkMapper.insert(
@@ -292,10 +299,13 @@ public class AnimeServiceImpl implements AnimeService {
      * @return 公司关联信息列表
      */
     private List<CompanyRelationVO> buildCompanyRelationVOList(List<CompanyRelationDTO> companies) {
+        // 稳定排序保留同值公司的写入顺序，与新建关联的 ID 升序一致。
         return companies.stream()
+                .sorted(Comparator.comparing(CompanyRelationDTO::getSortOrder))
                 .map(company -> CompanyRelationVO.builder()
                         .companyId(company.getCompanyId())
                         .role(company.getRole())
+                        .sortOrder(company.getSortOrder())
                         .build())
                 .toList();
     }
@@ -389,6 +399,7 @@ public class AnimeServiceImpl implements AnimeService {
                         new LambdaQueryWrapper<Alias>()
                                 .eq(Alias::getTargetType, "ANIME")
                                 .eq(Alias::getTargetId, animeId)
+                                .orderByAsc(Alias::getSortOrder)
                                 .orderByAsc(Alias::getId)
                 )
                 .stream()
@@ -407,6 +418,7 @@ public class AnimeServiceImpl implements AnimeService {
                         new LambdaQueryWrapper<CompanyRelation>()
                                 .eq(CompanyRelation::getTargetType, "ANIME")
                                 .eq(CompanyRelation::getTargetId, animeId)
+                                .orderByAsc(CompanyRelation::getSortOrder)
                                 .orderByAsc(CompanyRelation::getId)
                 )
                 .stream()
@@ -414,6 +426,7 @@ public class AnimeServiceImpl implements AnimeService {
                     return CompanyRelationVO.builder()
                             .companyId(companyRelation.getCompanyId())
                             .role(companyRelation.getRole())
+                            .sortOrder(companyRelation.getSortOrder())
                             .build();
                 })
                 .toList();
@@ -580,13 +593,14 @@ public class AnimeServiceImpl implements AnimeService {
                         .eq(Alias::getTargetType, "ANIME")
                         .eq(Alias::getTargetId, animeId)
         );
-        aliasNames.forEach(aliasName -> aliasMapper.insert(
-                Alias.builder()
-                        .targetType("ANIME")
-                        .targetId(animeId)
-                        .aliasName(aliasName)
-                        .build()
-        ));
+        for (int i = 0; i < aliasNames.size(); i++) {
+            aliasMapper.insert(Alias.builder()
+                    .targetType("ANIME")
+                    .targetId(animeId)
+                    .aliasName(aliasNames.get(i))
+                    .sortOrder((long) i)
+                    .build());
+        }
     }
 
     /**
@@ -596,19 +610,31 @@ public class AnimeServiceImpl implements AnimeService {
      * @param companies 公司关联列表
      */
     private void replaceAnimeCompanies(Long animeId, List<CompanyRelationDTO> companies) {
+        // 覆盖前保存原排序，兼容未传排序值的旧请求。
+        Map<Long, Long> sortOrders = companyRelationMapper.selectList(
+                new LambdaQueryWrapper<CompanyRelation>()
+                        .eq(CompanyRelation::getTargetType, "ANIME")
+                        .eq(CompanyRelation::getTargetId, animeId)
+                        .orderByAsc(CompanyRelation::getSortOrder)
+                        .orderByAsc(CompanyRelation::getId)
+        ).stream().collect(Collectors.toMap(CompanyRelation::getCompanyId, CompanyRelation::getSortOrder));
         companyRelationMapper.delete(
                 new LambdaQueryWrapper<CompanyRelation>()
                         .eq(CompanyRelation::getTargetType, "ANIME")
                         .eq(CompanyRelation::getTargetId, animeId)
         );
-        companies.forEach(company -> companyRelationMapper.insert(
-                CompanyRelation.builder()
-                        .targetType("ANIME")
-                        .targetId(animeId)
-                        .companyId(company.getCompanyId())
-                        .role(company.getRole())
-                        .build()
-        ));
+        for (int i = 0; i < companies.size(); i++) {
+            CompanyRelationDTO company = companies.get(i);
+            companyRelationMapper.insert(CompanyRelation.builder()
+                    .targetType("ANIME")
+                    .targetId(animeId)
+                    .companyId(company.getCompanyId())
+                    .role(company.getRole())
+                    .sortOrder(company.getSortOrder() == null
+                            ? sortOrders.getOrDefault(company.getCompanyId(), (long) i)
+                            : company.getSortOrder())
+                    .build());
+        }
     }
 
     /**
@@ -1105,6 +1131,7 @@ public class AnimeServiceImpl implements AnimeService {
                 new LambdaQueryWrapper<Alias>()
                         .eq(Alias::getTargetType, "ANIME")
                         .in(Alias::getTargetId, animeIds)
+                        .orderByAsc(Alias::getSortOrder)
                         .orderByAsc(Alias::getId)
         ).forEach(alias -> result.computeIfAbsent(alias.getTargetId(), key -> new ArrayList<>())
                 .add(alias.getAliasName()));
@@ -1151,6 +1178,7 @@ public class AnimeServiceImpl implements AnimeService {
                 new LambdaQueryWrapper<CompanyRelation>()
                         .eq(CompanyRelation::getTargetType, "ANIME")
                         .in(CompanyRelation::getTargetId, animeIds)
+                        .orderByAsc(CompanyRelation::getSortOrder)
                         .orderByAsc(CompanyRelation::getId)
         );
         Set<Long> companyIds = relations.stream()
@@ -1167,6 +1195,7 @@ public class AnimeServiceImpl implements AnimeService {
                                 .companyId(company.getId())
                                 .companyName(company.getName())
                                 .role(relation.getRole())
+                                .sortOrder(relation.getSortOrder())
                                 .build());
             }
         });
@@ -1266,6 +1295,7 @@ public class AnimeServiceImpl implements AnimeService {
         return BroadcastTypeVO.builder()
                 .id(broadcastType.getId())
                 .name(broadcastType.getName())
+                .sortOrder(broadcastType.getSortOrder())
                 .build();
     }
 
@@ -1282,6 +1312,7 @@ public class AnimeServiceImpl implements AnimeService {
         return AdaptationTypeVO.builder()
                 .id(adaptationType.getId())
                 .name(adaptationType.getName())
+                .sortOrder(adaptationType.getSortOrder())
                 .build();
     }
 
@@ -1358,7 +1389,7 @@ public class AnimeServiceImpl implements AnimeService {
         if (companies == null || companies.isEmpty()) {
             return List.of();
         }
-        // 按公司 ID 去重，保留第一次传入的职责。
+        // 按公司 ID 去重，保留第一次传入的职责和排序。
         Map<Long, CompanyRelationDTO> companyMap = new LinkedHashMap<>();
         companies.forEach(company -> {
             if (company == null || company.getCompanyId() == null) {
@@ -1371,6 +1402,7 @@ public class AnimeServiceImpl implements AnimeService {
             CompanyRelationDTO dto = new CompanyRelationDTO();
             dto.setCompanyId(company.getCompanyId());
             dto.setRole(StringUtils.hasText(company.getRole()) ? company.getRole().trim() : null);
+            dto.setSortOrder(company.getSortOrder());
             companyMap.putIfAbsent(dto.getCompanyId(), dto);
         });
         return new ArrayList<>(companyMap.values());

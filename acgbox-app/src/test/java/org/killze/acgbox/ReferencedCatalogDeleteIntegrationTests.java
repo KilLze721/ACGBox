@@ -92,11 +92,11 @@ class ReferencedCatalogDeleteIntegrationTests {
                 .status(3L)
                 .build());
 
-        assertEquals("所选改编类型已被动画引用，不能删除", assertThrows(BusinessException.class,
+        assertEquals("所选改编类型已被作品引用，不能删除", assertThrows(BusinessException.class,
                 () -> adaptationTypeService.deleteAdaptationTypes(List.of(adaptationType.getId()))).getMessage());
         assertEquals("所选放送类型已被动画引用，不能删除", assertThrows(BusinessException.class,
                 () -> broadcastTypeService.deleteBroadcastTypes(List.of(broadcastType.getId()))).getMessage());
-        assertEquals("所选地区已被动画引用，不能删除", assertThrows(BusinessException.class,
+        assertEquals("所选地区已被作品引用，不能删除", assertThrows(BusinessException.class,
                 () -> regionService.deleteRegions(List.of(region.getId()))).getMessage());
 
         assertNotNull(adaptationTypeMapper.selectById(adaptationType.getId()));

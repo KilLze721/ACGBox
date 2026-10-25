@@ -33,6 +33,12 @@ public class AdaptationType {
     private String name;
 
     /**
+     * 排序值，越小越靠前，同值时按 ID 升序。
+     */
+    @TableField("sort_order")
+    private Long sortOrder;
+
+    /**
      * 记录创建时间。
      */
     @TableField("created_at")

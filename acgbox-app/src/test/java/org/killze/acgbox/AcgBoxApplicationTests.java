@@ -26,13 +26,13 @@ class AcgBoxApplicationTests {
     @Test
     void anonymousCannotAccessManagementApi() throws Exception {
         mockMvc.perform(get("/anime/page"))
-                .andExpect(status().is3xxRedirection());
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
     void authenticatedPostDoesNotRequireCsrfToken() throws Exception {
         mockMvc.perform(post("/anime/create")
-                        .with(user("admin"))
+                        .with(user("admin").roles("ADMIN"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isOk());

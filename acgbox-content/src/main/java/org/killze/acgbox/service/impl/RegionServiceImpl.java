@@ -105,7 +105,7 @@ public class RegionServiceImpl implements RegionService {
             throw new BusinessException("请选择要删除的地区");
         }
         // 判断地区是否被动画引用
-        String message = "所选地区已被动画引用，不能删除";
+        String message = "所选地区已被作品引用，不能删除";
         if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
                 .in(Anime::getRegionId, ids)) > 0) {
             throw new BusinessException(message);

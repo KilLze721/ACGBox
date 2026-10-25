@@ -49,6 +49,7 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         // 创建改编类型
         AdaptationType adaptationType = AdaptationType.builder()
                 .name(dto.getName())
+                .sortOrder(dto.getSortOrder() == null ? 0L : dto.getSortOrder())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -57,6 +58,7 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         return AdaptationTypeVO.builder()
                 .id(adaptationType.getId())
                 .name(adaptationType.getName())
+                .sortOrder(adaptationType.getSortOrder())
                 .build();
     }
 
@@ -84,12 +86,16 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         }
         // 修改改编类型
         adaptationType.setName(dto.getName());
+        if (dto.getSortOrder() != null) {
+            adaptationType.setSortOrder(dto.getSortOrder());
+        }
         adaptationType.setUpdatedAt(LocalDateTime.now());
         adaptationTypeMapper.updateById(adaptationType);
         // 返回改编类型信息
         return AdaptationTypeVO.builder()
                 .id(adaptationType.getId())
                 .name(adaptationType.getName())
+                .sortOrder(adaptationType.getSortOrder())
                 .build();
     }
 
@@ -105,7 +111,7 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
             throw new BusinessException("请选择要删除的改编类型");
         }
         // 判断改编类型是否被动画引用
-        String message = "所选改编类型已被动画引用，不能删除";
+        String message = "所选改编类型已被作品引用，不能删除";
         if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
                 .in(Anime::getAdaptationTypeId, ids)) > 0) {
             throw new BusinessException(message);
@@ -135,6 +141,7 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         return AdaptationTypeVO.builder()
                 .id(adaptationType.getId())
                 .name(adaptationType.getName())
+                .sortOrder(adaptationType.getSortOrder())
                 .build();
     }
 
@@ -148,13 +155,15 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         // 查询全部改编类型
         List<AdaptationType> adaptationTypes = adaptationTypeMapper.selectList(
                 new LambdaQueryWrapper<AdaptationType>()
-                        .orderByAsc(AdaptationType::getName)
+                        .orderByAsc(AdaptationType::getSortOrder)
+                        .orderByAsc(AdaptationType::getId)
         );
         // 返回改编类型列表
         return adaptationTypes.stream()
                 .map(adaptationType -> AdaptationTypeVO.builder()
                         .id(adaptationType.getId())
                         .name(adaptationType.getName())
+                        .sortOrder(adaptationType.getSortOrder())
                         .build())
                 .toList();
     }

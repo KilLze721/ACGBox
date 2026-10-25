@@ -42,4 +42,10 @@ public class Alias {
      */
     @TableField("alias_name")
     private String aliasName;
+
+    /**
+     * 同一关联对象内的排序值，越小越靠前，同值时按别名 ID 升序。
+     */
+    @TableField("sort_order")
+    private Long sortOrder;
 }
