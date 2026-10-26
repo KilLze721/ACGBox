@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.killze.acgbox.dto.content.AdaptationTypeDTO;
 import org.killze.acgbox.entity.content.AdaptationType;
 import org.killze.acgbox.entity.content.Anime;
+import org.killze.acgbox.entity.content.Book;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.AdaptationTypeMapper;
 import org.killze.acgbox.mapper.AnimeMapper;
+import org.killze.acgbox.mapper.BookMapper;
 import org.killze.acgbox.service.AdaptationTypeService;
 import org.killze.acgbox.vo.content.AdaptationTypeVO;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,6 +31,9 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
 
     @Autowired
     private AnimeMapper animeMapper;
+
+    @Autowired
+    private BookMapper bookMapper;
 
     /**
      * 创建改编类型
@@ -110,10 +115,11 @@ public class AdaptationTypeServiceImpl implements AdaptationTypeService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的改编类型");
         }
-        // 判断改编类型是否被动画引用
+        // 判断改编类型是否被动画或书籍引用
         String message = "所选改编类型已被作品引用，不能删除";
         if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
-                .in(Anime::getAdaptationTypeId, ids)) > 0) {
+                .in(Anime::getAdaptationTypeId, ids)) > 0
+                || bookMapper.selectCount(new LambdaQueryWrapper<Book>().in(Book::getAdaptationTypeId, ids)) > 0) {
             throw new BusinessException(message);
         }
         // 删除改编类型

@@ -20,6 +20,15 @@ import org.killze.acgbox.service.BroadcastTypeService;
 import org.killze.acgbox.vo.content.AdaptationTypeVO;
 import org.killze.acgbox.vo.content.BroadcastTypeVO;
 import org.killze.acgbox.vo.content.AnimeVO;
+import org.killze.acgbox.dto.content.BookDTO;
+import org.killze.acgbox.vo.content.BookVO;
+import org.killze.acgbox.service.BookService;
+import org.killze.acgbox.service.BookTypeService;
+import org.killze.acgbox.service.impl.BookServiceImpl;
+import org.killze.acgbox.dto.content.BookPageDTO;
+import org.killze.acgbox.entity.content.Book;
+import org.killze.acgbox.mapper.BookMapper;
+import tools.jackson.databind.json.JsonMapper;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,6 +51,8 @@ class SortOrderValidationTests {
     private BroadcastTypeService broadcastTypeService;
     private AdaptationTypeService adaptationTypeService;
     private AnimeService animeService;
+    private BookService bookService;
+    private BookTypeService bookTypeService;
 
     @BeforeEach
     void setUp() {
@@ -51,10 +62,17 @@ class SortOrderValidationTests {
         BroadcastTypeController broadcastTypeController = new BroadcastTypeController();
         AdaptationTypeController adaptationTypeController = new AdaptationTypeController();
         AnimeController animeController = new AnimeController();
+        bookService = mock(BookService.class);
+        bookTypeService = mock(BookTypeService.class);
+        BookController bookController = new BookController();
+        BookTypeController bookTypeController = new BookTypeController();
+        ReflectionTestUtils.setField(bookController, "bookService", bookService);
+        ReflectionTestUtils.setField(bookTypeController, "bookTypeService", bookTypeService);
         ReflectionTestUtils.setField(broadcastTypeController, "broadcastTypeService", broadcastTypeService);
         ReflectionTestUtils.setField(adaptationTypeController, "adaptationTypeService", adaptationTypeService);
         ReflectionTestUtils.setField(animeController, "animeService", animeService);
-        mockMvc = MockMvcBuilders.standaloneSetup(broadcastTypeController, adaptationTypeController, animeController)
+        mockMvc = MockMvcBuilders.standaloneSetup(broadcastTypeController, adaptationTypeController, animeController,
+                        bookController, bookTypeController)
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
@@ -221,5 +239,93 @@ class SortOrderValidationTests {
                                 + "\"regionId\":1,\"status\":1,\"airDate\":\"" + date + "\"}"))
                 .andExpect(jsonPath("$.code").value(500));
         verifyNoInteractions(animeService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"1.5", "\"1\"", "1e0", "true"})
+    void bookNumericInputsRejectImplicitConversionWithoutChangingAnime(String token) throws Exception {
+        JsonMapper mapper = JsonMapper.builder().build();
+        for (String field : java.util.List.of("status", "volumeCount", "chapterCount", "personalRatingScore",
+                "bookTypeId", "adaptationTypeId", "regionId", "seriesId", "seriesSortOrder")) {
+            var body = mapper.createObjectNode().put("name", "书籍").put("bookTypeId", 1L)
+                    .put("adaptationTypeId", 1L).put("regionId", 1L).put("status", 0L);
+            body.set(field, mapper.readTree(token));
+            mockMvc.perform(post("/book/create").contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(body)))
+                    .andExpect(jsonPath("$.code").value(500));
+        }
+        for (String relation : java.util.List.of("\"companies\":[{\"companyId\":" + token + "}]",
+                "\"companies\":[{\"companyId\":1,\"sortOrder\":" + token + "}]",
+                "\"persons\":[{\"personId\":" + token + ",\"role\":\"作者\"}]",
+                "\"persons\":[{\"personId\":1,\"role\":\"作者\",\"sortOrder\":" + token + "}]",
+                "\"externalLinks\":[{\"url\":\"https://example.com\",\"sortOrder\":" + token + "}]",
+                "\"tagIds\":[" + token + "]")) {
+            mockMvc.perform(post("/book/update").contentType(MediaType.APPLICATION_JSON).content(
+                    "{\"id\":1,\"name\":\"书籍\",\"bookTypeId\":1,\"adaptationTypeId\":1,\"regionId\":1,\"status\":0," + relation + "}"))
+                    .andExpect(jsonPath("$.code").value(500));
+        }
+        for (String path : java.util.List.of("book", "book-type")) {
+            mockMvc.perform(post("/" + path + "/delete").contentType(MediaType.APPLICATION_JSON).content("[" + token + "]"))
+                    .andExpect(jsonPath("$.code").value(500));
+        }
+        mockMvc.perform(post("/book-type/create").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"类型\",\"sortOrder\":" + token + "}"))
+                .andExpect(jsonPath("$.code").value(500));
+        verifyNoInteractions(bookService, bookTypeService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2026", "2026-10", "2026-02-30", "", "2026-1-01", "0000-01-01"})
+    void bookPublishDateDoesNotFillMissingPrecisionOrAcceptInvalidDates(String date) throws Exception {
+        mockMvc.perform(post("/book/create").contentType(MediaType.APPLICATION_JSON).content(
+                "{\"name\":\"书籍\",\"bookTypeId\":1,\"adaptationTypeId\":1,\"regionId\":1,\"status\":0,\"publishDate\":\"" + date + "\"}"))
+                .andExpect(jsonPath("$.code").value(500));
+        verifyNoInteractions(bookService);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"null", "\"2026-10-26\""})
+    void bookPublishDateAcceptsNullOrFullDateAndPreservesZeros(String date) throws Exception {
+        when(bookService.createBook(any())).thenAnswer(invocation -> {
+            BookDTO dto = invocation.getArgument(0);
+            return BookVO.builder().id(1L).publishDate(dto.getPublishDate()).status(dto.getStatus())
+                    .volumeCount(dto.getVolumeCount()).personalRatingScore(dto.getPersonalRatingScore()).build();
+        });
+        mockMvc.perform(post("/book/create").contentType(MediaType.APPLICATION_JSON).content(
+                "{\"name\":\"书籍\",\"bookTypeId\":1,\"adaptationTypeId\":1,\"regionId\":1,\"status\":0,"
+                        + "\"volumeCount\":0,\"personalRatingScore\":0,\"publishDate\":" + date + "}"))
+                .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.status").value(0))
+                .andExpect(jsonPath("$.data.volumeCount").value(0)).andExpect(jsonPath("$.data.personalRatingScore").value(0));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"personId,0", "seriesId,-1", "companyId,2147483648", "bookTypeId,1.5", "adaptationTypeId,abc",
+            "regionId,0x1", "ratingMin,1.5", "ratingMax,11", "status,6", "pageNum,0", "pageSize,101",
+            "sortBy,BROADCAST_DATE", "sortDirection,INVALID", "tagIds,1.5", "publishStartDate,2026-13"})
+    void bookPageRejectsInvalidLocalParametersBeforeQuery(String field, String value) throws Exception {
+        BookMapper mapper = mock(BookMapper.class);
+        bookPageMvc(mapper).perform(get("/book/page").param(field, value)).andExpect(jsonPath("$.code").value(500));
+        verifyNoInteractions(mapper);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"bookTypeId", "adaptationTypeId", "regionId", "companyId", "personId", "seriesId"})
+    void bookPageReturnsEmptyForLegalUnknownIds(String field) throws Exception {
+        BookMapper mapper = mock(BookMapper.class);
+        bookPageMvc(mapper).perform(get("/book/page").param(field, "2147483647"))
+                .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.total").value(0))
+                .andExpect(jsonPath("$.data.rows").isEmpty());
+    }
+
+    private MockMvc bookPageMvc(BookMapper mapper) {
+        BookServiceImpl service = new BookServiceImpl();
+        ReflectionTestUtils.setField(service, "bookMapper", mapper);
+        when(mapper.selectBookPage(any(), any(), isNull(), isNull())).thenAnswer(invocation -> {
+            Page<Book> page = invocation.getArgument(0);
+            page.setRecords(java.util.List.of());
+            return page;
+        });
+        BookController controller = new BookController();
+        ReflectionTestUtils.setField(controller, "bookService", service);
+        return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 }

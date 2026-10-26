@@ -409,6 +409,20 @@ class SecurityConfigTests {
     static class TestConfig {
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR", "USER"})
+    void bookRoutesKeepContentManagementRoleRules(String role) throws Exception {
+        String token = createToken(role);
+        for (String path : java.util.List.of("/book/page", "/book-type/list")) {
+            mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                    .andExpect(role.equals("USER") ? status().isForbidden() : status().isOk());
+        }
+        for (String path : java.util.List.of("/book/create", "/book-type/create")) {
+            mockMvc.perform(post(path).header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                    .andExpect(role.equals("USER") ? status().isForbidden() : status().isOk());
+        }
+    }
+
     /**
      * 仅在本测试上下文注册的接口，不参与正式应用的组件扫描。
      */
@@ -416,13 +430,14 @@ class SecurityConfigTests {
     @RestController
     static class TestController {
 
-        @GetMapping({"/security-test/content", "/admin/users/security-test"})
+        @GetMapping({"/security-test/content", "/admin/users/security-test", "/book/page", "/book-type/list"})
         public String getContent() {
             return "ok";
         }
 
         @PostMapping({"/security-test/content", "/admin/users/security-test", "/admin/login/username",
-                "/admin/login/email-password", "/admin/login/email-code/send", "/admin/login/email-code"})
+                "/admin/login/email-password", "/admin/login/email-code/send", "/admin/login/email-code",
+                "/book/create", "/book-type/create"})
         public String postContent() {
             return "ok";
         }

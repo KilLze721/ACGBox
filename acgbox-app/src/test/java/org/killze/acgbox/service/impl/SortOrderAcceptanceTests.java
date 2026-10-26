@@ -136,6 +136,7 @@ class SortOrderAcceptanceTests {
         AdaptationTypeServiceImpl adaptationService = new AdaptationTypeServiceImpl();
         ReflectionTestUtils.setField(adaptationService, "adaptationTypeMapper", adaptationMapper);
         ReflectionTestUtils.setField(adaptationService, "animeMapper", animeMapper);
+        ReflectionTestUtils.setField(adaptationService, "bookMapper", mock(BookMapper.class));
         BroadcastTypeController broadcastController = new BroadcastTypeController();
         ReflectionTestUtils.setField(broadcastController, "broadcastTypeService", broadcastService);
         AdaptationTypeController adaptationController = new AdaptationTypeController();
@@ -342,6 +343,7 @@ class SortOrderAcceptanceTests {
             AdaptationTypeServiceImpl service = new AdaptationTypeServiceImpl();
             ReflectionTestUtils.setField(service, "adaptationTypeMapper", mapper);
             ReflectionTestUtils.setField(service, "animeMapper", animeMapper);
+            ReflectionTestUtils.setField(service, "bookMapper", mock(BookMapper.class));
             if (foreignKey) doThrow(new DataIntegrityViolationException("模拟其他作品外键")).when(mapper).deleteByIds(ids);
             assertEquals(expected, assertThrows(BusinessException.class, () -> service.deleteAdaptationTypes(ids)).getMessage());
             if (!foreignKey) verify(mapper, never()).deleteByIds(anyCollection());
@@ -351,6 +353,7 @@ class SortOrderAcceptanceTests {
             RegionServiceImpl service = new RegionServiceImpl();
             ReflectionTestUtils.setField(service, "regionMapper", mapper);
             ReflectionTestUtils.setField(service, "animeMapper", animeMapper);
+            ReflectionTestUtils.setField(service, "bookMapper", mock(BookMapper.class));
             if (foreignKey) doThrow(new DataIntegrityViolationException("模拟其他作品外键")).when(mapper).deleteByIds(ids);
             assertEquals(expected, assertThrows(BusinessException.class, () -> service.deleteRegions(ids)).getMessage());
             if (!foreignKey) verify(mapper, never()).deleteByIds(anyCollection());

@@ -3,9 +3,11 @@ package org.killze.acgbox.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import org.killze.acgbox.dto.content.RegionDTO;
 import org.killze.acgbox.entity.content.Anime;
+import org.killze.acgbox.entity.content.Book;
 import org.killze.acgbox.entity.content.Region;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.AnimeMapper;
+import org.killze.acgbox.mapper.BookMapper;
 import org.killze.acgbox.mapper.RegionMapper;
 import org.killze.acgbox.service.RegionService;
 import org.killze.acgbox.vo.content.RegionVO;
@@ -29,6 +31,9 @@ public class RegionServiceImpl implements RegionService {
 
     @Autowired
     private AnimeMapper animeMapper;
+
+    @Autowired
+    private BookMapper bookMapper;
 
     /**
      * 创建地区
@@ -104,10 +109,11 @@ public class RegionServiceImpl implements RegionService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的地区");
         }
-        // 判断地区是否被动画引用
+        // 判断地区是否被动画或书籍引用
         String message = "所选地区已被作品引用，不能删除";
         if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>()
-                .in(Anime::getRegionId, ids)) > 0) {
+                .in(Anime::getRegionId, ids)) > 0
+                || bookMapper.selectCount(new LambdaQueryWrapper<Book>().in(Book::getRegionId, ids)) > 0) {
             throw new BusinessException(message);
         }
         // 删除地区

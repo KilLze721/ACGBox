@@ -14,6 +14,8 @@ import org.killze.acgbox.entity.content.AdaptationType;
 import org.killze.acgbox.entity.content.Anime;
 import org.killze.acgbox.entity.content.BroadcastType;
 import org.killze.acgbox.entity.content.Region;
+import org.killze.acgbox.entity.content.Book;
+import org.killze.acgbox.mapper.BookMapper;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.mapper.AdaptationTypeMapper;
 import org.killze.acgbox.mapper.AnimeMapper;
@@ -43,19 +45,21 @@ class CatalogSortOrderTests {
     private AdaptationTypeMapper adaptationTypeMapper;
     private RegionMapper regionMapper;
     private AnimeMapper animeMapper;
+    private BookMapper bookMapper;
     private BroadcastTypeServiceImpl broadcastTypeService;
     private AdaptationTypeServiceImpl adaptationTypeService;
     private RegionServiceImpl regionService;
 
     @BeforeEach
     void setUp() {
-        for (Class<?> entity : List.of(BroadcastType.class, AdaptationType.class, Region.class, Anime.class)) {
+        for (Class<?> entity : List.of(BroadcastType.class, AdaptationType.class, Region.class, Anime.class, Book.class)) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entity);
         }
         broadcastTypeMapper = mock(BroadcastTypeMapper.class);
         adaptationTypeMapper = mock(AdaptationTypeMapper.class);
         regionMapper = mock(RegionMapper.class);
         animeMapper = mock(AnimeMapper.class);
+        bookMapper = mock(BookMapper.class);
         broadcastTypeService = new BroadcastTypeServiceImpl();
         adaptationTypeService = new AdaptationTypeServiceImpl();
         regionService = new RegionServiceImpl();
@@ -63,8 +67,10 @@ class CatalogSortOrderTests {
         ReflectionTestUtils.setField(broadcastTypeService, "animeMapper", animeMapper);
         ReflectionTestUtils.setField(adaptationTypeService, "adaptationTypeMapper", adaptationTypeMapper);
         ReflectionTestUtils.setField(adaptationTypeService, "animeMapper", animeMapper);
+        ReflectionTestUtils.setField(adaptationTypeService, "bookMapper", bookMapper);
         ReflectionTestUtils.setField(regionService, "regionMapper", regionMapper);
         ReflectionTestUtils.setField(regionService, "animeMapper", animeMapper);
+        ReflectionTestUtils.setField(regionService, "bookMapper", bookMapper);
     }
 
     @ParameterizedTest

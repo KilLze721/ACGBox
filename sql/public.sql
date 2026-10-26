@@ -12,7 +12,7 @@
  Target Server Version : 160003 (160003)
  File Encoding         : 65001
 
- Date: 25/10/2026 19:25:35
+ Date: 26/10/2026 16:42:18
 */
 
 
@@ -329,7 +329,7 @@ COMMENT ON COLUMN "public"."book"."adaptation_type_id" IS '改编类型 ID，必
 COMMENT ON COLUMN "public"."book"."region_id" IS '原作所属地区 ID，必填，复用现有 region 表';
 COMMENT ON COLUMN "public"."book"."publish_date" IS '原作首次公开发表日期，包含线上发表；具体日期未知时为空，不补齐年月';
 COMMENT ON COLUMN "public"."book"."cover_image_url" IS '作品代表封面图片 URL';
-COMMENT ON COLUMN "public"."book"."status" IS '创作或连载状态：0 未知、1 未发表、2 连载中、3 已完结、4 暂停中、5 已终止';
+COMMENT ON COLUMN "public"."book"."status" IS '创作或连载状态：0 其他、1 未发表、2 连载中、3 已完结、4 暂停中、5 已终止';
 COMMENT ON COLUMN "public"."book"."volume_count" IS '原作当前已知的已发行卷册数，不重复累加不同语言版本，未知或不适用时为空';
 COMMENT ON COLUMN "public"."book"."chapter_count" IS '原作当前已知的已发表章节数，未知或不适用时为空';
 COMMENT ON COLUMN "public"."book"."description" IS '作品简介';
@@ -665,7 +665,7 @@ SELECT setval('"public"."anime_id_seq"', 432, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."book_id_seq"
 OWNED BY "public"."book"."id";
-SELECT setval('"public"."book_id_seq"', 1, false);
+SELECT setval('"public"."book_id_seq"', 1, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -686,35 +686,35 @@ SELECT setval('"public"."broadcast_type_id_seq"', 94, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."company_id_seq"
 OWNED BY "public"."company"."id";
-SELECT setval('"public"."company_id_seq"', 179, true);
+SELECT setval('"public"."company_id_seq"', 180, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_relation_id_seq"
 OWNED BY "public"."company_relation"."id";
-SELECT setval('"public"."company_relation_id_seq"', 200, true);
+SELECT setval('"public"."company_relation_id_seq"', 201, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."external_link_id_seq"
 OWNED BY "public"."external_link"."id";
-SELECT setval('"public"."external_link_id_seq"', 147, true);
+SELECT setval('"public"."external_link_id_seq"', 149, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_id_seq"
 OWNED BY "public"."person"."id";
-SELECT setval('"public"."person_id_seq"', 1, false);
+SELECT setval('"public"."person_id_seq"', 1, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_relation_id_seq"
 OWNED BY "public"."person_relation"."id";
-SELECT setval('"public"."person_relation_id_seq"', 1, false);
+SELECT setval('"public"."person_relation_id_seq"', 1, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -742,7 +742,7 @@ SELECT setval('"public"."series_id_seq"', 187, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."series_item_id_seq"
 OWNED BY "public"."series_item"."id";
-SELECT setval('"public"."series_item_id_seq"', 195, true);
+SELECT setval('"public"."series_item_id_seq"', 196, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -756,7 +756,7 @@ SELECT setval('"public"."tag_id_seq"', 274, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_relation_id_seq"
 OWNED BY "public"."tag_relation"."id";
-SELECT setval('"public"."tag_relation_id_seq"', 638, true);
+SELECT setval('"public"."tag_relation_id_seq"', 644, true);
 
 -- ----------------------------
 -- Alter sequences owned by
