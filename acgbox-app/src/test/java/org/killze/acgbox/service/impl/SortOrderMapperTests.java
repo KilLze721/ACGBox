@@ -7,6 +7,7 @@ import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.inner.PaginationInnerInterceptor;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.apache.ibatis.mapping.Environment;
 import org.apache.ibatis.builder.xml.XMLMapperBuilder;
 import org.apache.ibatis.io.Resources;
@@ -39,6 +40,7 @@ import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,7 +77,7 @@ class SortOrderMapperTests {
                     + "UNIQUE(target_type,target_id,person_id,role))");
             statement.execute("CREATE TABLE anime (id INTEGER PRIMARY KEY, name TEXT, episode_count INTEGER, "
                     + "broadcast_type_id INTEGER, adaptation_type_id INTEGER, region_id INTEGER, air_date TEXT, "
-                    + "cover_image_url TEXT, status INTEGER, created_at TEXT, updated_at TEXT)");
+                    + "cover_image_url TEXT, status INTEGER, description TEXT, created_at TEXT, updated_at TEXT)");
             statement.execute("CREATE TABLE personal_rating (target_type TEXT, target_id INTEGER, score NUMERIC, "
                     + "UNIQUE(target_type,target_id))");
             statement.execute("CREATE TABLE series (id INTEGER PRIMARY KEY, name TEXT)");
@@ -388,6 +390,26 @@ class SortOrderMapperTests {
         Page<Anime> page = new Page<>(dto.getPageNum(), dto.getPageSize());
         session.getMapper(AnimeMapper.class).selectAnimePage(page, dto, null, null);
         return page;
+    }
+
+    @Test
+    void animeAirDateCanBeCreatedEmptyAndClearedToNull() {
+        AnimeMapper mapper = session.getMapper(AnimeMapper.class);
+        Anime anime = Anime.builder().name("日期清空验证").build();
+        mapper.insert(anime);
+        assertNull(mapper.selectById(anime.getId()).getAirDate());
+        mapper.update(null, new LambdaUpdateWrapper<Anime>().eq(Anime::getId, anime.getId())
+                .set(Anime::getAirDate, LocalDate.of(2026, 1, 1)));
+        assertEquals(LocalDate.of(2026, 1, 1), mapper.selectById(anime.getId()).getAirDate());
+        mapper.update(null, new LambdaUpdateWrapper<Anime>().eq(Anime::getId, anime.getId())
+                .set(Anime::getAirDate, null));
+        assertNull(mapper.selectById(anime.getId()).getAirDate());
+        AnimePageDTO dto = new AnimePageDTO();
+        dto.setKeyword("日期清空验证");
+        assertNull(queryAnime(dto).getRecords().getFirst().getAirDate());
+        Page<Anime> ranged = new Page<>(1, 20);
+        mapper.selectAnimePage(ranged, dto, LocalDate.of(2020, 1, 1), null);
+        assertEquals(0L, ranged.getTotal());
     }
 
     private List<Long> animeIds(Page<Anime> page) {

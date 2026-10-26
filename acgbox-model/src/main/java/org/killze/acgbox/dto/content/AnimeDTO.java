@@ -53,9 +53,8 @@ public class AnimeDTO {
     private Long regionId;
 
     /**
-     * 动画开播日期
+     * 动画开播日期，可空；修改时传 null 或省略可清空原日期。
      */
-    @NotNull(message = "开播日期不能为空")
     private LocalDate airDate;
 
     /**

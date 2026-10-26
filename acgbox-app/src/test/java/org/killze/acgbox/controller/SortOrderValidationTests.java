@@ -7,6 +7,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.killze.acgbox.dto.content.AdaptationTypeDTO;
 import org.killze.acgbox.dto.content.BroadcastTypeDTO;
 import org.killze.acgbox.dto.content.AnimePageDTO;
+import org.killze.acgbox.dto.content.AnimeDTO;
 import org.killze.acgbox.entity.content.Anime;
 import org.killze.acgbox.mapper.AnimeMapper;
 import org.killze.acgbox.service.impl.AnimeServiceImpl;
@@ -18,6 +19,7 @@ import org.killze.acgbox.service.AnimeService;
 import org.killze.acgbox.service.BroadcastTypeService;
 import org.killze.acgbox.vo.content.AdaptationTypeVO;
 import org.killze.acgbox.vo.content.BroadcastTypeVO;
+import org.killze.acgbox.vo.content.AnimeVO;
 import org.springframework.http.MediaType;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
@@ -180,5 +182,44 @@ class SortOrderValidationTests {
         AnimeController controller = new AnimeController();
         ReflectionTestUtils.setField(controller, "animeService", service);
         return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"create,MISSING", "create,NULL", "create,EMPTY", "update,MISSING", "update,NULL", "update,EMPTY"})
+    void animeWritesAllowMissingNullOrEmptyAirDate(String operation, String mode) throws Exception {
+        when(animeService.createAnime(any())).thenAnswer(invocation -> {
+            AnimeDTO dto = invocation.getArgument(0);
+            return AnimeVO.builder().id(1L).airDate(dto.getAirDate()).build();
+        });
+        when(animeService.updateAnime(any())).thenAnswer(invocation -> {
+            AnimeDTO dto = invocation.getArgument(0);
+            return AnimeVO.builder().id(dto.getId()).airDate(dto.getAirDate()).build();
+        });
+        String date = switch (mode) {
+            case "NULL" -> ",\"airDate\":null";
+            case "EMPTY" -> ",\"airDate\":\"\"";
+            default -> "";
+        };
+        mockMvc.perform(post("/anime/" + operation).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":1,\"name\":\"日期待定\",\"broadcastTypeId\":1,\"adaptationTypeId\":1,"
+                                + "\"regionId\":1,\"status\":1" + date + "}"))
+                .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.airDate").isEmpty());
+        ArgumentCaptor<AnimeDTO> dto = ArgumentCaptor.forClass(AnimeDTO.class);
+        if (operation.equals("create")) {
+            verify(animeService).createAnime(dto.capture());
+        } else {
+            verify(animeService).updateAnime(dto.capture());
+        }
+        org.junit.jupiter.api.Assertions.assertNull(dto.getValue().getAirDate());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"create,2026-02-30", "update,2026-02-30", "create,invalid-date", "update,invalid-date"})
+    void animeWritesStillRejectInvalidNonemptyAirDate(String operation, String date) throws Exception {
+        mockMvc.perform(post("/anime/" + operation).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":1,\"name\":\"无效日期\",\"broadcastTypeId\":1,\"adaptationTypeId\":1,"
+                                + "\"regionId\":1,\"status\":1,\"airDate\":\"" + date + "\"}"))
+                .andExpect(jsonPath("$.code").value(500));
+        verifyNoInteractions(animeService);
     }
 }
