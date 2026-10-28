@@ -34,6 +34,12 @@ class ExternalSecretsConfigurationTests {
                 ACGBOX_ACCOUNT_EMAIL_ENABLED: true
                 ACGBOX_MAIL_HOST: "smtp.example.test"
                 ACGBOX_REDIS_PORT: 6380
+                ACGBOX_COS_ENABLED: true
+                ACGBOX_COS_REGION: "ap-guangzhou"
+                ACGBOX_COS_BUCKET: "covers-1250000000"
+                ACGBOX_COS_SECRET_ID: "test-only-id"
+                ACGBOX_COS_SECRET_KEY: "test-only-key"
+                ACGBOX_COS_PUBLIC_BASE_URL: "https://img.example.test"
                 spring:
                   datasource:
                     password: "test-only-password"
@@ -48,6 +54,15 @@ class ExternalSecretsConfigurationTests {
             assertEquals("test-only-password", context.getEnvironment().getProperty("spring.datasource.password"));
             assertEquals("8080", context.getEnvironment().getProperty("server.port"));
             assertEquals("acgbox-admin", context.getEnvironment().getProperty("jwt.issuer"));
+            assertEquals("true", context.getEnvironment().getProperty("storage.cos.enabled"));
+            assertEquals("ap-guangzhou", context.getEnvironment().getProperty("storage.cos.region"));
+            assertEquals("covers-1250000000", context.getEnvironment().getProperty("storage.cos.bucket"));
+            assertEquals("test-only-id", context.getEnvironment().getProperty("storage.cos.secret-id"));
+            assertEquals("test-only-key", context.getEnvironment().getProperty("storage.cos.secret-key"));
+            assertEquals("https://img.example.test", context.getEnvironment().getProperty("storage.cos.public-base-url"));
+            assertEquals("5242880B", context.getEnvironment().getProperty("spring.servlet.multipart.max-file-size"));
+            assertEquals("6291456B", context.getEnvironment().getProperty("spring.servlet.multipart.max-request-size"));
+            assertEquals("true", context.getEnvironment().getProperty("spring.servlet.multipart.resolve-lazily"));
         }
     }
 
@@ -68,5 +83,70 @@ class ExternalSecretsConfigurationTests {
                 "spring.config.additional-location", file.toUri().toString()
         )));
         return context;
+    }
+
+    @Test
+    void disabledCosDoesNotRequireCredentialsOrCreateClient() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            context.register(CosStorageConfig.class);
+            context.refresh();
+            assertEquals(0, context.getBeansOfType(com.qcloud.cos.COSClient.class).size());
+            context.getBean(CosStorageProperties.class).validate();
+        }
+    }
+
+    @Test
+    void enabledCosRequiresAllSettingsBeforeClientCreation() {
+        var properties = new CosStorageProperties();
+        properties.setEnabled(true);
+        var config = new CosStorageConfig();
+        assertThrows(IllegalStateException.class, () -> config.cosClient(properties));
+        properties.setRegion("ap-guangzhou");
+        assertThrows(IllegalStateException.class, () -> config.cosClient(properties));
+        properties.setBucket("covers-1250000000");
+        assertThrows(IllegalStateException.class, () -> config.cosClient(properties));
+        properties.setSecretId("test-only-id");
+        assertThrows(IllegalStateException.class, () -> config.cosClient(properties));
+        properties.setSecretKey("test-only-key");
+        assertThrows(IllegalStateException.class, () -> config.cosClient(properties));
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"http://img.example.test", "https://img.example.test/path",
+            "https://img.example.test?key=value", "https://img.example.test#fragment", "https://user@img.example.test",
+            "https://localhost", "https://127.0.0.1", "https://img.example.test:443", "invalid", ""})
+    void cosRejectsInvalidPublicBasesWithoutEchoingThem(String url) {
+        var properties = cosProperties();
+        properties.setPublicBaseUrl(url);
+        var error = assertThrows(IllegalStateException.class, properties::validate);
+        assertEquals("storage.cos.public-base-url 必须为不带路径、端口或参数的 HTTPS 域名基址", error.getMessage());
+    }
+
+    @Test
+    void cosClientUsesHttpsTimeoutsAndNormalizesPublicBaseWithoutCloudProbe() {
+        var properties = cosProperties();
+        properties.setPublicBaseUrl("https://img.example.test///");
+        var client = new CosStorageConfig().cosClient(properties);
+        try {
+            assertEquals("https://img.example.test", properties.getPublicBaseUrl());
+            assertEquals(com.qcloud.cos.http.HttpProtocol.https, client.getClientConfig().getHttpProtocol());
+            assertEquals(5000, client.getClientConfig().getConnectionTimeout());
+            assertEquals(5000, client.getClientConfig().getConnectionRequestTimeout());
+            assertEquals(30000, client.getClientConfig().getSocketTimeout());
+            assertEquals(0, client.getClientConfig().getMaxErrorRetry());
+        } finally {
+            client.shutdown();
+        }
+    }
+
+    private CosStorageProperties cosProperties() {
+        var properties = new CosStorageProperties();
+        properties.setEnabled(true);
+        properties.setRegion("ap-guangzhou");
+        properties.setBucket("covers-1250000000");
+        properties.setSecretId("test-only-id");
+        properties.setSecretKey("test-only-key");
+        properties.setPublicBaseUrl("https://img.example.test");
+        return properties;
     }
 }

@@ -10,6 +10,13 @@ server:
 
 # Spring 基础设施配置。
 spring:
+  # 图片上传表单限制，单张 5 MiB，整个请求预留 1 MiB 给字段和边界。
+  servlet:
+    multipart:
+      max-file-size: 5242880B
+      max-request-size: 6291456B
+      # 延迟到控制器参数解析时处理，先由安全过滤器链验证身份与权限。
+      resolve-lazily: true
   # PostgreSQL 数据源：这里保留开发默认值，实际环境在私有文件中用同名属性覆盖。
   datasource:
     # JDBC 连接地址，格式为 jdbc:postgresql://主机:端口/数据库名。
@@ -71,6 +78,20 @@ spring:
       connect-timeout: 3s
       # Redis 命令执行超时，使用带单位的时长值。
       timeout: 3s
+
+# 图片上传配置；关闭时无需配置 COS 凭证，不影响手动填写 coverImageUrl。
+storage:
+  cos:
+    enabled: ${ACGBOX_COS_ENABLED:false}
+    # 使用桶实际所在地域，不是公开访问域名。
+    region: ${ACGBOX_COS_REGION:}
+    # 完整桶名，包含 APPID 后缀。
+    bucket: ${ACGBOX_COS_BUCKET:}
+    # 仅限后端的受限账号凭证，禁止填入可提交文件或前端配置。
+    secret-id: ${ACGBOX_COS_SECRET_ID:}
+    secret-key: ${ACGBOX_COS_SECRET_KEY:}
+    # 固定 HTTPS 图片域名基址，不带端口、路径、查询参数或片段。
+    public-base-url: ${ACGBOX_COS_PUBLIC_BASE_URL:}
 
 # 项目自定义的邮箱验证码配置，与 spring.mail 的 SMTP 连接参数分开管理。
 account-email:

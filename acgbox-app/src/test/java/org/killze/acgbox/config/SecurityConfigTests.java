@@ -69,6 +69,9 @@ class SecurityConfigTests {
     @MockitoBean
     private UserAccountMapper userAccountMapper;
 
+    @MockitoBean
+    private org.killze.acgbox.service.ImageUploadService imageUploadService;
+
     private UserAccount userAccount;
 
     private MockMvc mockMvc;
@@ -405,8 +408,39 @@ class SecurityConfigTests {
     @TestConfiguration
     @EnableWebMvc
     @EnableWebSecurity
-    @Import({SecurityConfig.class, JwtConfig.class, TestController.class})
+    @Import({SecurityConfig.class, JwtConfig.class, TestController.class,
+            org.killze.acgbox.controller.ImageUploadController.class})
     static class TestConfig {
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR", "USER"})
+    void imageUploadUsesActualControllerAndExistingContentPermissions(String role) throws Exception {
+        var file = new org.springframework.mock.web.MockMultipartFile("file", "cover.png", "image/png", new byte[]{1});
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/uploads/images")
+                        .file(file).param("targetType", "ANIME")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken(role)))
+                .andExpect(role.equals("USER") ? status().isForbidden() : status().isOk());
+        if (role.equals("USER")) {
+            verifyNoInteractions(imageUploadService);
+        } else {
+            verify(imageUploadService).uploadImage(file, "ANIME");
+        }
+    }
+
+    @Test
+    void imageUploadRejectsAnonymousInvalidAndRevokedTokensBeforeBusiness() throws Exception {
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/uploads/images"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/uploads/images")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer invalid-token"))
+                .andExpect(status().isUnauthorized());
+        String token = createToken("ADMIN");
+        userAccount.setTokenVersion(1L);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/uploads/images")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(imageUploadService);
     }
 
     @ParameterizedTest
