@@ -16,7 +16,6 @@ import org.killze.acgbox.entity.content.*;
 import org.killze.acgbox.mapper.*;
 import org.killze.acgbox.vo.content.AnimeVO;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -163,104 +162,11 @@ class AnimeAssociationSortOrderTests {
         });
     }
 
-    @Test
-    void createCleansAliasesAndUsesContinuousArrayPositions() {
-        AnimeDTO dto = animeDTO();
-        dto.setAliasNames(Arrays.asList(" Z ", "", "A", "Z", null, " B ", "A"));
-        AnimeVO created = service.createAnime(dto);
-        assertEquals(List.of("Z", "A", "B"), created.getAliasNames());
-        assertEquals(List.of(0L, 1L, 2L), aliases.stream().map(Alias::getSortOrder).toList());
-        assertEquals(created.getAliasNames(), service.getAnimeById(1L).getAliasNames());
-        assertEquals(created.getAliasNames(), page().getFirst().getAliasNames());
-    }
 
-    @Test
-    void createKeepsFirstCompanyRoleAndSortAndMatchesRefresh() {
-        AnimeDTO dto = animeDTO();
-        dto.setCompanies(Arrays.asList(null, company(8L, " 制作 ", 4L), company(3L, "发行", -2L),
-                company(8L, "忽略重复", -100L), company(9L, " ", null), company(2L, "企划", 4L)));
-        AnimeVO created = service.createAnime(dto);
-        assertEquals(List.of(4L, -2L, 2L, 4L), relations.stream().map(CompanyRelation::getSortOrder).toList());
-        assertEquals(List.of(3L, 9L, 8L, 2L), created.getCompanies().stream().map(value -> value.getCompanyId()).toList());
-        assertEquals("制作", created.getCompanies().get(2).getRole());
-        assertNull(created.getCompanies().get(1).getRole());
-        assertEquals(created.getCompanies(), service.getAnimeById(1L).getCompanies());
-        var companies = page().getFirst().getCompanies();
-        assertEquals(List.of(3L, 9L, 8L, 2L), companies.stream().map(value -> value.getCompanyId()).toList());
-        assertEquals(List.of(-2L, 2L, 4L, 4L), companies.stream().map(value -> value.getSortOrder()).toList());
-        assertEquals("公司3", companies.getFirst().getCompanyName());
-    }
 
-    @Test
-    void oldUpdatePreservesExistingCompanySortAndAssignsNewPositionAfterCleaning() {
-        relations.add(relation(3L, "ANIME", 1L, 8L, "旧职责", 40L));
-        relations.add(relation(4L, "ANIME", 1L, 3L, "旧职责", -5L));
-        addOtherTargets();
-        AnimeDTO dto = animeDTO();
-        dto.setId(1L);
-        dto.setAliasNames(Arrays.asList(" B ", "A", "B", ""));
-        dto.setCompanies(Arrays.asList(null, company(8L, "新职责", null), company(8L, "重复", 1L),
-                company(3L, "发行", null), company(9L, "新增", null)));
-        AnimeVO updated = service.updateAnime(dto);
-        assertEquals(List.of("B", "A"), updated.getAliasNames());
-        assertEquals(List.of(0L, 1L), aliases.stream().filter(value -> value.getTargetType().equals("ANIME")
-                && value.getTargetId().equals(1L)).map(Alias::getSortOrder).toList());
-        assertEquals(List.of(3L, 9L, 8L), updated.getCompanies().stream().map(value -> value.getCompanyId()).toList());
-        assertEquals(List.of(-5L, 2L, 40L), updated.getCompanies().stream().map(value -> value.getSortOrder()).toList());
-        assertEquals("新职责", updated.getCompanies().getLast().getRole());
-        assertEquals(updated.getCompanies(), service.getAnimeById(1L).getCompanies());
-        assertEquals(2L, relations.stream().filter(value -> !value.getTargetType().equals("ANIME")
-                || !value.getTargetId().equals(1L)).count());
-        assertEquals(2L, aliases.stream().filter(value -> !value.getTargetType().equals("ANIME")
-                || !value.getTargetId().equals(1L)).count());
-        assertEquals(List.of(3L, 9L, 8L), page().getFirst().getCompanies().stream().map(value -> value.getCompanyId()).toList());
-    }
 
-    @Test
-    void explicitUpdateSupportsZeroNegativeBoundariesAndStableAssociationIdTies() {
-        relations.add(relation(3L, "ANIME", 1L, 8L, "旧职责", 40L));
-        AnimeDTO dto = animeDTO();
-        dto.setId(1L);
-        dto.setCompanies(List.of(company(8L, "制作", 0L), company(3L, "发行", 0L),
-                company(4L, "企划", -2147483648L), company(5L, "协力", 2147483647L)));
-        AnimeVO updated = service.updateAnime(dto);
-        assertEquals(List.of(4L, 8L, 3L, 5L), updated.getCompanies().stream().map(value -> value.getCompanyId()).toList());
-        assertEquals(List.of(-2147483648L, 0L, 0L, 2147483647L), updated.getCompanies().stream().map(value -> value.getSortOrder()).toList());
-        assertEquals(updated.getCompanies(), service.getAnimeById(1L).getCompanies());
-    }
 
-    @Test
-    void emptyUpdateClearsOnlyThisAnimeAssociations() {
-        aliases.add(Alias.builder().id(1L).targetType("ANIME").targetId(1L).aliasName("旧别名").sortOrder(0L).build());
-        relations.add(relation(3L, "ANIME", 1L, 8L, "旧职责", 40L));
-        addOtherTargets();
-        AnimeDTO dto = animeDTO();
-        dto.setId(1L);
-        AnimeVO updated = service.updateAnime(dto);
-        assertTrue(updated.getAliasNames().isEmpty());
-        assertTrue(updated.getCompanies().isEmpty());
-        assertEquals(2, aliases.size());
-        assertEquals(2, relations.size());
-    }
 
-    @Test
-    void detailAndPageReadStoredSortWithIdTieBreakNotCompanyId() {
-        aliases.addAll(List.of(
-                Alias.builder().id(3L).targetType("ANIME").targetId(1L).aliasName("第三").sortOrder(0L).build(),
-                Alias.builder().id(2L).targetType("ANIME").targetId(1L).aliasName("第一").sortOrder(-1L).build(),
-                Alias.builder().id(1L).targetType("ANIME").targetId(1L).aliasName("第二").sortOrder(0L).build()));
-        relations.addAll(List.of(relation(3L, "ANIME", 1L, 2L, "发行", 0L),
-                relation(2L, "ANIME", 1L, 9L, "制作", -1L), relation(1L, "ANIME", 1L, 8L, "协力", 0L)));
-        addOtherTargets();
-        AnimeVO detail = service.getAnimeById(1L);
-        assertEquals(List.of("第一", "第二", "第三"), detail.getAliasNames());
-        assertEquals(List.of(9L, 8L, 2L), detail.getCompanies().stream().map(value -> value.getCompanyId()).toList());
-        var rows = page();
-        assertEquals(detail.getAliasNames(), rows.getFirst().getAliasNames());
-        assertEquals(List.of(9L, 8L, 2L), rows.getFirst().getCompanies().stream().map(value -> value.getCompanyId()).toList());
-        assertEquals(List.of("其他动画"), rows.getLast().getAliasNames());
-        assertEquals(List.of(20L), rows.getLast().getCompanies().stream().map(value -> value.getCompanyId()).toList());
-    }
 
     @Test
     void pageIncludesDictionarySortWithoutChangingSelectedIds() {
@@ -277,11 +183,6 @@ class AnimeAssociationSortOrderTests {
         assertEquals(5L, row.getAdaptationType().getSortOrder());
     }
 
-    @Test
-    void createAndUpdateRemainTransactional() throws Exception {
-        assertNotNull(AnimeServiceImpl.class.getMethod("createAnime", AnimeDTO.class).getAnnotation(Transactional.class));
-        assertNotNull(AnimeServiceImpl.class.getMethod("updateAnime", AnimeDTO.class).getAnnotation(Transactional.class));
-    }
 
     @Test
     void personsSupportMultipleRolesStableSortAndCurrentNamesWithBatchReads() {

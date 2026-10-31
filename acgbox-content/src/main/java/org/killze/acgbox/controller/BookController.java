@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.bind.WebDataBinder;
 import java.beans.PropertyEditorSupport;
+import java.util.List;
 
 /**
  * 书籍管理接口，沿用内容管理的 ADMIN、EDITOR 权限。
@@ -51,7 +52,7 @@ public class BookController {
 
     /** 单条或批量删除书籍，JSON 数组形式不变。 */
     @PostMapping("/delete")
-    public Result<Void> deleteBook(@RequestBody BookIdsDTO ids) {
+    public Result<Void> deleteBook(@RequestBody List<Long> ids) {
         log.info("删除书籍：{}", ids);
         bookService.deleteBooks(ids);
         return Result.success();
@@ -65,7 +66,7 @@ public class BookController {
 
     /** 数据库分页筛选并返回当前页完整关联资料。 */
     @GetMapping("/page")
-    public Result<PageVO<BookPageVO>> pageBook(BookPageDTO dto) {
+    public Result<PageVO<BookPageVO>> pageBook(@Valid BookPageDTO dto) {
         return Result.success(bookService.pageBook(dto));
     }
 }

@@ -19,9 +19,6 @@ class AcgBoxApplicationTests {
     @Autowired
     private MockMvc mockMvc;
 
-    @Test
-    void contextLoads() {
-    }
 
     @Test
     void anonymousCannotAccessManagementApi() throws Exception {

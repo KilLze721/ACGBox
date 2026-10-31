@@ -10,6 +10,11 @@ server:
 
 # Spring 基础设施配置。
 spring:
+  # 所有 JSON 整数字段统一禁止浮点数转整数，避免 ID、排序和数量被静默截断。
+  # 不额外收紧数字字符串等默认转换；评分使用 BigDecimal 和业务校验。
+  jackson:
+    deserialization:
+      accept-float-as-int: false
   # 图片上传表单限制，单张 5 MiB，整个请求预留 1 MiB 给字段和边界。
   servlet:
     multipart:

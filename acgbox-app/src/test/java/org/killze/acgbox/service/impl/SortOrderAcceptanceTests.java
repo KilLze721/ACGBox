@@ -1,5 +1,7 @@
 package org.killze.acgbox.service.impl;
 
+import tools.jackson.databind.json.JsonMapper;
+
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -144,6 +146,8 @@ class SortOrderAcceptanceTests {
         AnimeController animeController = new AnimeController();
         ReflectionTestUtils.setField(animeController, "animeService", animeService);
         mvc = MockMvcBuilders.standaloneSetup(broadcastController, adaptationController, animeController)
+                .setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 

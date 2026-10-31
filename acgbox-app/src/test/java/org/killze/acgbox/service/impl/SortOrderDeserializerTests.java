@@ -16,14 +16,44 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * 验证三个排序属性严格绑定整数，且不改变其他字段的默认数字绑定。
+ * 验证排序输入的整数约束、空值兼容和溢出拒绝。
  */
 class SortOrderDeserializerTests {
 
-    private final JsonMapper mapper = JsonMapper.builder().build();
+    private final JsonMapper mapper = applicationMapper();
+
+    /** 只加载公共 JSON 配置，不启动应用、不读取私有配置或连接外部服务。 */
+    private JsonMapper applicationMapper() {
+        try (var context = new org.springframework.context.annotation.AnnotationConfigApplicationContext()) {
+            var sources = new org.springframework.boot.env.YamlPropertySourceLoader().load("public-json",
+                    new org.springframework.core.io.ClassPathResource("application.yml"));
+            sources.forEach(source -> context.getEnvironment().getPropertySources().addLast(source));
+            context.register(org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration.class);
+            context.refresh();
+            return context.getBean(JsonMapper.class);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    @Test
+    void globalNumbersKeepStringsAndDecimalScoresWithoutTruncatingIds() {
+        assertThrows(JacksonException.class, () -> mapper.readValue("{\"episodeCount\":1.5}", AnimeDTO.class));
+        assertEquals(1L, mapper.readValue("{\"episodeCount\":\"1\"}", AnimeDTO.class).getEpisodeCount());
+        assertEquals(1L, mapper.readValue("{\"sortOrder\":\"1\"}", BroadcastTypeDTO.class).getSortOrder());
+        try (var factory = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            for (String score : java.util.List.of("0", "8.0", "10", "8.5")) {
+                var book = mapper.readValue("{\"personalRatingScore\":" + score + "}",
+                        org.killze.acgbox.dto.content.BookDTO.class);
+                assertEquals(0, new java.math.BigDecimal(score).compareTo(book.getPersonalRatingScore()));
+                assertEquals(score.equals("8.5"), !factory.getValidator()
+                        .validateProperty(book, "personalRatingScore").isEmpty());
+            }
+        }
+    }
 
     @ParameterizedTest
-    @ValueSource(strings = {"1.5", "-1.5", "1.0", "1e0", "\"1\"", "true", "{}", "[]"})
+    @ValueSource(strings = {"1.5", "-1.5", "1.0", "1e0", "true", "{}", "[]"})
     void rejectsNonIntegerTokensInAllThreePropertiesAndNestedCompanies(String value) {
         String json = "{\"sortOrder\":" + value + "}";
         assertThrows(MismatchedInputException.class, () -> mapper.readValue(json, BroadcastTypeDTO.class));
@@ -63,8 +93,4 @@ class SortOrderDeserializerTests {
         assertThrows(JacksonException.class, () -> mapper.readValue(json, CompanyRelationDTO.class));
     }
 
-    @Test
-    void otherLongFieldsKeepExistingBindingBehavior() {
-        assertEquals(1L, mapper.readValue("{\"episodeCount\":1.5}", AnimeDTO.class).getEpisodeCount());
-    }
 }

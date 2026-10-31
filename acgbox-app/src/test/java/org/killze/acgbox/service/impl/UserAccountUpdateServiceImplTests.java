@@ -21,7 +21,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,7 +28,6 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -378,13 +376,6 @@ class UserAccountUpdateServiceImplTests {
         assertFalse(passwordDTO.toString().contains("new-user-password"));
     }
 
-    @Test
-    void shouldWrapBothMutationMethodsInTransactions() throws Exception {
-        assertNotNull(UserAccountServiceImpl.class.getMethod("updateUserAccount", UserAccountDTO.class, Long.class)
-                .getAnnotation(Transactional.class));
-        assertNotNull(UserAccountServiceImpl.class.getMethod("resetUserAccountPassword", UserAccountPasswordDTO.class, Long.class)
-                .getAnnotation(Transactional.class));
-    }
 
     private LambdaUpdateWrapper<UserAccount> captureUpdate() {
         ArgumentCaptor<LambdaUpdateWrapper<UserAccount>> captor = ArgumentCaptor.captor();

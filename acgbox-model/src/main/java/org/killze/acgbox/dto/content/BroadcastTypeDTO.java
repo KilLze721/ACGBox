@@ -4,8 +4,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Max;
 import lombok.Data;
-import org.killze.acgbox.deserializer.SortOrderDeserializer;
-import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * 放送类型数据传输对象
@@ -29,6 +27,5 @@ public class BroadcastTypeDTO {
      */
     @Min(value = -2147483648L, message = "排序值不能小于 -2147483648")
     @Max(value = 2147483647L, message = "排序值不能大于 2147483647")
-    @JsonDeserialize(using = SortOrderDeserializer.class)
     private Long sortOrder;
 }

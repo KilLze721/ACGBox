@@ -1,8 +1,6 @@
 package org.killze.acgbox.dto.content;
 
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Digits;
+import org.killze.acgbox.validation.IntegerScore;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.killze.acgbox.dto.common.PageDTO;
@@ -78,19 +76,15 @@ public class AnimePageDTO extends PageDTO {
     private Long seriesId;
 
     /**
-     * 最低个人评分
+     * 最低个人评分，可选的 0 到 10 整数。
      */
-    @DecimalMin(value = "0.0", message = "ratingMin 不能小于 0")
-    @DecimalMax(value = "10.0", message = "ratingMin 不能大于 10")
-    @Digits(integer = 2, fraction = 1, message = "ratingMin 最多支持一位小数")
+    @IntegerScore(message = "ratingMin必须为 0 到 10 的整数")
     private BigDecimal ratingMin;
 
     /**
-     * 最高个人评分
+     * 最高个人评分，可选的 0 到 10 整数。
      */
-    @DecimalMin(value = "0.0", message = "ratingMax 不能小于 0")
-    @DecimalMax(value = "10.0", message = "ratingMax 不能大于 10")
-    @Digits(integer = 2, fraction = 1, message = "ratingMax 最多支持一位小数")
+    @IntegerScore(message = "ratingMax必须为 0 到 10 的整数")
     private BigDecimal ratingMax;
 
     /**

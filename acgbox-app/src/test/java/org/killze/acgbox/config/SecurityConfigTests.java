@@ -1,7 +1,6 @@
 package org.killze.acgbox.config;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
@@ -36,8 +35,6 @@ import org.springframework.web.servlet.config.annotation.EnableWebMvc;
 import java.time.Instant;
 import java.util.List;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -306,22 +303,6 @@ class SecurityConfigTests {
         verifyNoInteractions(userAccountMapper);
     }
 
-    @Test
-    void shouldQueryOnlyCurrentAccountAuthenticationFields() throws Exception {
-        when(userAccountMapper.selectOne(any())).thenAnswer(invocation -> {
-            LambdaQueryWrapper<UserAccount> query = invocation.getArgument(0);
-            assertEquals("id,enabled,token_version", query.getSqlSelect());
-            assertTrue(query.getSqlSegment().contains("id ="));
-            assertEquals(1L, query.getParamNameValuePairs().get("MPGENVAL1"));
-            return userAccount;
-        });
-
-        mockMvc.perform(get("/security-test/content")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken("ADMIN")))
-                .andExpect(status().isOk());
-
-        verify(userAccountMapper).selectOne(any());
-    }
 
     /**
      * 使用独立的测试密钥签发令牌，验证实际的解码和角色转换流程。

@@ -122,6 +122,7 @@ public class AnimeServiceImpl implements AnimeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AnimeVO createAnime(AnimeDTO animeDTO) {
+        validateRatingValue(animeDTO.getPersonalRatingScore(), "个人评分");
         // 在写入动画前校验人员及职责，避免无效人物关联进入保存流程。
         List<PersonRelationDTO> persons = buildPersons(animeDTO.getPersons());
         // 判断此动画是否存在。
@@ -531,6 +532,7 @@ public class AnimeServiceImpl implements AnimeService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public AnimeVO updateAnime(AnimeDTO animeDTO) {
+        validateRatingValue(animeDTO.getPersonalRatingScore(), "个人评分");
         // 判断动画 ID 是否为空。
         if (animeDTO.getId() == null) {
             throw new BusinessException("动画 ID 不能为空");
@@ -1051,11 +1053,9 @@ public class AnimeServiceImpl implements AnimeService {
         if (rating == null) {
             return;
         }
-        if (rating.compareTo(BigDecimal.ZERO) < 0 || rating.compareTo(BigDecimal.TEN) > 0) {
-            throw new BusinessException(fieldName + " 必须处于 0 到 10 之间");
-        }
-        if (rating.stripTrailingZeros().scale() > 1) {
-            throw new BusinessException(fieldName + " 最多支持一位小数");
+        if (rating.compareTo(BigDecimal.ZERO) < 0 || rating.compareTo(BigDecimal.TEN) > 0
+                || rating.stripTrailingZeros().scale() > 0) {
+            throw new BusinessException(fieldName + "必须为 0 到 10 的整数");
         }
     }
 

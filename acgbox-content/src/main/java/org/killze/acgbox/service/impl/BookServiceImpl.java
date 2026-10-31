@@ -163,7 +163,9 @@ public class BookServiceImpl implements BookService {
         range(dto.getStatus(), "status", 0L, 5L, true);
         range(dto.getVolumeCount(), "volumeCount", 0L, 2147483647L, false);
         range(dto.getChapterCount(), "chapterCount", 0L, 2147483647L, false);
-        range(dto.getPersonalRatingScore(), "personalRatingScore", 0L, 10L, false);
+        if (dto.getPersonalRatingScore() != null) {
+            integerScore(dto.getPersonalRatingScore());
+        }
         range(dto.getSeriesId(), "seriesId", 1L, 2147483647L, false);
         range(dto.getSeriesSortOrder(), "seriesSortOrder", -2147483648L, 2147483647L, false);
         if (dto.getPublishDate() != null && (dto.getPublishDate().getYear() < 1 || dto.getPublishDate().getYear() > 9999)) {
@@ -188,7 +190,7 @@ public class BookServiceImpl implements BookService {
                 cleanLinks(dto.getExternalLinks()), tags);
     }
 
-    private List<CompanyRelationDTO> cleanCompanies(List<BookCompanyDTO> input, Long bookId) {
+    private List<CompanyRelationDTO> cleanCompanies(List<CompanyRelationDTO> input, Long bookId) {
         if (input == null || input.isEmpty()) {
             return List.of();
         }
@@ -197,7 +199,7 @@ public class BookServiceImpl implements BookService {
                         .eq(CompanyRelation::getTargetId, bookId)).stream()
                 .collect(Collectors.toMap(CompanyRelation::getCompanyId, CompanyRelation::getSortOrder));
         Map<Long, CompanyRelationDTO> result = new LinkedHashMap<>();
-        for (BookCompanyDTO company : input) {
+        for (CompanyRelationDTO company : input) {
             if (company == null) {
                 throw new BusinessException("公司关联项不能为空");
             }
@@ -217,14 +219,14 @@ public class BookServiceImpl implements BookService {
         return new ArrayList<>(result.values());
     }
 
-    private List<PersonRelationDTO> cleanPersons(List<BookPersonDTO> input) {
+    private List<PersonRelationDTO> cleanPersons(List<PersonRelationDTO> input) {
         if (input == null || input.isEmpty()) {
             return List.of();
         }
         List<PersonRelationDTO> result = new ArrayList<>();
         Set<PersonRole> roles = new HashSet<>();
         Set<Long> ids = new HashSet<>();
-        for (BookPersonDTO person : input) {
+        for (PersonRelationDTO person : input) {
             if (person == null) {
                 throw new BusinessException("人物关联项不能为空");
             }
@@ -248,12 +250,12 @@ public class BookServiceImpl implements BookService {
         return result;
     }
 
-    private List<ExternalLinkDTO> cleanLinks(List<BookExternalLinkDTO> input) {
+    private List<ExternalLinkDTO> cleanLinks(List<ExternalLinkDTO> input) {
         Map<String, ExternalLinkDTO> result = new LinkedHashMap<>();
         if (input == null) {
             return List.of();
         }
-        for (BookExternalLinkDTO link : input) {
+        for (ExternalLinkDTO link : input) {
             if (link == null) {
                 throw new BusinessException("外链项不能为空");
             }
@@ -342,7 +344,7 @@ public class BookServiceImpl implements BookService {
         }
     }
 
-    private void saveRating(Long id, Long score) {
+    private void saveRating(Long id, BigDecimal score) {
         if (score == null) {
             personalRatingMapper.delete(new LambdaQueryWrapper<PersonalRating>()
                     .eq(PersonalRating::getTargetType, "BOOK").eq(PersonalRating::getTargetId, id));
@@ -353,9 +355,9 @@ public class BookServiceImpl implements BookService {
         LocalDateTime now = LocalDateTime.now();
         if (value == null) {
             personalRatingMapper.insert(PersonalRating.builder().targetType("BOOK").targetId(id)
-                    .score(BigDecimal.valueOf(score)).createdAt(now).updatedAt(now).build());
+                    .score(score).createdAt(now).updatedAt(now).build());
         } else {
-            value.setScore(BigDecimal.valueOf(score));
+            value.setScore(score);
             value.setUpdatedAt(now);
             personalRatingMapper.updateById(value);
         }
@@ -467,9 +469,13 @@ public class BookServiceImpl implements BookService {
         range(dto.getPersonId(), "personId", 1L, 2147483647L, false);
         range(dto.getSeriesId(), "seriesId", 1L, 2147483647L, false);
         range(dto.getStatus(), "status", 0L, 5L, false);
-        range(dto.getRatingMin(), "ratingMin", 0L, 10L, false);
-        range(dto.getRatingMax(), "ratingMax", 0L, 10L, false);
-        if (dto.getRatingMin() != null && dto.getRatingMax() != null && dto.getRatingMin() > dto.getRatingMax()) {
+        if (dto.getRatingMin() != null) {
+            integerScore(dto.getRatingMin());
+        }
+        if (dto.getRatingMax() != null) {
+            integerScore(dto.getRatingMax());
+        }
+        if (dto.getRatingMin() != null && dto.getRatingMax() != null && dto.getRatingMin().compareTo(dto.getRatingMax()) > 0) {
             throw new BusinessException("ratingMin 不能大于 ratingMax");
         }
         dto.setKeyword(StringUtils.hasText(dto.getKeyword()) ? dto.getKeyword().trim() : null);

@@ -49,7 +49,7 @@ public class BookTypeController {
 
     /** 单条或批量删除书籍类型，JSON 数组形式不变。 */
     @PostMapping("/delete")
-    public Result<Void> deleteBookType(@RequestBody BookIdsDTO ids) {
+    public Result<Void> deleteBookType(@RequestBody List<Long> ids) {
         log.info("删除书籍类型：{}", ids);
         bookTypeService.deleteBookTypes(ids);
         return Result.success();

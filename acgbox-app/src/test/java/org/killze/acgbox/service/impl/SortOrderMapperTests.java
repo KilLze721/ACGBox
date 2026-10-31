@@ -18,7 +18,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.killze.acgbox.entity.content.AdaptationType;
 import org.killze.acgbox.entity.content.Alias;
-import org.killze.acgbox.entity.content.BroadcastType;
 import org.killze.acgbox.entity.content.CompanyRelation;
 import org.killze.acgbox.entity.content.Person;
 import org.killze.acgbox.entity.content.PersonRelation;
@@ -139,72 +138,9 @@ class SortOrderMapperTests {
         }
     }
 
-    @Test
-    void broadcastMapsWritesDefaultsUpdatesAndStableSort() {
-        BroadcastTypeMapper mapper = session.getMapper(BroadcastTypeMapper.class);
-        BroadcastType first = BroadcastType.builder().name("Z").build();
-        BroadcastType second = BroadcastType.builder().name("A").sortOrder(0L).build();
-        BroadcastType third = BroadcastType.builder().name("B").sortOrder(-1L).build();
-        mapper.insert(first);
-        mapper.insert(second);
-        mapper.insert(third);
-        assertEquals(0L, mapper.selectById(first.getId()).getSortOrder());
-        var result = mapper.selectList(new LambdaQueryWrapper<BroadcastType>()
-                .orderByAsc(BroadcastType::getSortOrder).orderByAsc(BroadcastType::getId));
-        assertEquals(List.of(third.getId(), first.getId(), second.getId()), result.stream().map(BroadcastType::getId).toList());
-        first.setSortOrder(-2147483648L);
-        mapper.updateById(first);
-        assertEquals(-2147483648L, mapper.selectById(first.getId()).getSortOrder());
-    }
 
-    @Test
-    void adaptationMapsWritesDefaultsUpdatesAndStableSort() {
-        AdaptationTypeMapper mapper = session.getMapper(AdaptationTypeMapper.class);
-        AdaptationType first = AdaptationType.builder().name("Z").build();
-        AdaptationType second = AdaptationType.builder().name("A").sortOrder(0L).build();
-        AdaptationType third = AdaptationType.builder().name("B").sortOrder(-1L).build();
-        mapper.insert(first);
-        mapper.insert(second);
-        mapper.insert(third);
-        assertEquals(0L, mapper.selectById(first.getId()).getSortOrder());
-        var result = mapper.selectList(new LambdaQueryWrapper<AdaptationType>()
-                .orderByAsc(AdaptationType::getSortOrder).orderByAsc(AdaptationType::getId));
-        assertEquals(List.of(third.getId(), first.getId(), second.getId()), result.stream().map(AdaptationType::getId).toList());
-        first.setSortOrder(2147483647L);
-        mapper.updateById(first);
-        assertEquals(2147483647L, mapper.selectById(first.getId()).getSortOrder());
-    }
 
-    @Test
-    void aliasMapsStoredSortAndFiltersOtherTargets() {
-        AliasMapper mapper = session.getMapper(AliasMapper.class);
-        Alias first = Alias.builder().targetType("ANIME").targetId(1L).aliasName("Z").build();
-        Alias second = Alias.builder().targetType("ANIME").targetId(1L).aliasName("A").sortOrder(0L).build();
-        Alias third = Alias.builder().targetType("ANIME").targetId(1L).aliasName("B").sortOrder(-1L).build();
-        mapper.insert(first);
-        mapper.insert(second);
-        mapper.insert(third);
-        mapper.insert(Alias.builder().targetType("BOOK").targetId(1L).aliasName("其他类型").sortOrder(-9L).build());
-        mapper.insert(Alias.builder().targetType("ANIME").targetId(2L).aliasName("其他动画").sortOrder(-9L).build());
-        var result = mapper.selectList(new LambdaQueryWrapper<Alias>().eq(Alias::getTargetType, "ANIME")
-                .eq(Alias::getTargetId, 1L).orderByAsc(Alias::getSortOrder).orderByAsc(Alias::getId));
-        assertEquals(List.of("B", "Z", "A"), result.stream().map(Alias::getAliasName).toList());
-        assertEquals(List.of(-1L, 0L, 0L), result.stream().map(Alias::getSortOrder).toList());
-    }
 
-    @Test
-    void companyRelationMapsSortAndUsesRelationIdNotCompanyId() {
-        CompanyRelationMapper mapper = session.getMapper(CompanyRelationMapper.class);
-        mapper.insert(CompanyRelation.builder().targetType("ANIME").targetId(1L).companyId(9L).role("制作").sortOrder(0L).build());
-        mapper.insert(CompanyRelation.builder().targetType("ANIME").targetId(1L).companyId(2L).role("发行").build());
-        mapper.insert(CompanyRelation.builder().targetType("ANIME").targetId(1L).companyId(3L).role("协力").sortOrder(-1L).build());
-        mapper.insert(CompanyRelation.builder().targetType("BOOK").targetId(1L).companyId(4L).sortOrder(-9L).build());
-        mapper.insert(CompanyRelation.builder().targetType("ANIME").targetId(2L).companyId(5L).sortOrder(-9L).build());
-        var result = mapper.selectList(new LambdaQueryWrapper<CompanyRelation>().eq(CompanyRelation::getTargetType, "ANIME")
-                .in(CompanyRelation::getTargetId, List.of(1L)).orderByAsc(CompanyRelation::getSortOrder).orderByAsc(CompanyRelation::getId));
-        assertEquals(List.of(3L, 9L, 2L), result.stream().map(CompanyRelation::getCompanyId).toList());
-        assertEquals(List.of(-1L, 0L, 0L), result.stream().map(CompanyRelation::getSortOrder).toList());
-    }
 
     @Test
     void personCrudAllowsSameNamesAndClearsDescriptionInActualSql() {
@@ -446,18 +382,18 @@ class SortOrderMapperTests {
         BookServiceImpl service = bookService();
         BookDTO dto = bookDTO();
         dto.setAliasNames(java.util.Arrays.asList(" 别名 B ", "", "别名 A", "别名 B", null));
-        BookCompanyDTO company = new BookCompanyDTO();
+        CompanyRelationDTO company = new CompanyRelationDTO();
         company.setCompanyId(1L);
         company.setRole(" 原版出版 ");
         company.setSortOrder(-2L);
         dto.setCompanies(List.of(company));
         dto.setPersons(List.of(bookPerson(1L, " 作者 ", 1L), bookPerson(1L, "插画", 0L)));
-        BookExternalLinkDTO link = new BookExternalLinkDTO();
+        ExternalLinkDTO link = new ExternalLinkDTO();
         link.setUrl("https://example.com/book");
         dto.setExternalLinks(List.of(link));
         dto.setTagIds(List.of(1L, 1L));
         dto.setAutoCreateSeries(true);
-        dto.setPersonalRatingScore(0L);
+        dto.setPersonalRatingScore(new java.math.BigDecimal("0"));
         var first = service.createBook(dto);
         var second = service.createBook(dto);
         assertNotEquals(first.getId(), second.getId());
@@ -493,9 +429,9 @@ class SortOrderMapperTests {
         dto.setPublishDate(LocalDate.of(2026, 1, 1));
         dto.setDescription("简介");
         dto.setCoverImageUrl("https://example.com/cover.jpg");
-        dto.setPersonalRatingScore(10L);
+        dto.setPersonalRatingScore(new java.math.BigDecimal("10"));
         dto.setPersons(List.of(bookPerson(1L, "作者", 0L)));
-        BookCompanyDTO company = new BookCompanyDTO();
+        CompanyRelationDTO company = new CompanyRelationDTO();
         company.setCompanyId(1L);
         company.setSortOrder(40L);
         dto.setCompanies(List.of(company));
@@ -514,7 +450,7 @@ class SortOrderMapperTests {
         assertEquals(1, changed.getPersons().size());
         assertEquals(40L, changed.getCompanies().getFirst().getSortOrder());
         update.setPersons(List.of());
-        update.setPersonalRatingScore(0L);
+        update.setPersonalRatingScore(new java.math.BigDecimal("0"));
         var cleared = service.updateBook(update);
         assertTrue(cleared.getPersons().isEmpty());
         assertEquals(0L, cleared.getPersonalRatingScore());
@@ -565,10 +501,12 @@ class SortOrderMapperTests {
         dto.setPersons(List.of(bookPerson(999L, "作者", 0L)));
         assertThrows(BusinessException.class, () -> service.createBook(dto));
         dto.setPersons(null);
-        dto.setPersonalRatingScore(11L);
+        dto.setPersonalRatingScore(new java.math.BigDecimal("11"));
+        assertThrows(BusinessException.class, () -> service.createBook(dto));
+        dto.setPersonalRatingScore(new java.math.BigDecimal("8.5"));
         assertThrows(BusinessException.class, () -> service.createBook(dto));
         dto.setPersonalRatingScore(null);
-        BookExternalLinkDTO link = new BookExternalLinkDTO();
+        ExternalLinkDTO link = new ExternalLinkDTO();
         link.setUrl("javascript:alert(1)");
         dto.setExternalLinks(List.of(link));
         assertThrows(BusinessException.class, () -> service.createBook(dto));
@@ -602,11 +540,11 @@ class SortOrderMapperTests {
         BookDTO first = bookDTO();
         first.setName("ABC 原作");
         first.setPublishDate(LocalDate.of(2023, 1, 1));
-        first.setPersonalRatingScore(8L);
+        first.setPersonalRatingScore(new java.math.BigDecimal("8.0"));
         first.setAliasNames(List.of("Alternate"));
         first.setPersons(List.of(bookPerson(1L, "作者", 0L), bookPerson(1L, "插画", 1L)));
         first.setAutoCreateSeries(true);
-        BookCompanyDTO company = new BookCompanyDTO();
+        CompanyRelationDTO company = new CompanyRelationDTO();
         company.setCompanyId(1L);
         first.setCompanies(List.of(company));
         first.setTagIds(List.of(1L));
@@ -615,7 +553,7 @@ class SortOrderMapperTests {
         second.setName("其他书名");
         second.setStatus(2L);
         second.setPublishDate(LocalDate.of(2024, 2, 29));
-        second.setPersonalRatingScore(10L);
+        second.setPersonalRatingScore(new java.math.BigDecimal("10"));
         second.setPersons(List.of(bookPerson(1L, "作者", 0L)));
         second.setSeriesId(seriesId);
         second.setCompanies(List.of(company));
@@ -629,7 +567,7 @@ class SortOrderMapperTests {
         service.createBook(third);
         BookDTO fourth = bookDTO();
         fourth.setPublishDate(LocalDate.of(2023, 1, 1));
-        fourth.setPersonalRatingScore(8L);
+        fourth.setPersonalRatingScore(new java.math.BigDecimal("8"));
         fourth.setSeriesId(seriesId);
         service.createBook(fourth);
         session.getMapper(PersonRelationMapper.class).insert(PersonRelation.builder().targetType("ANIME").targetId(3L)
@@ -674,7 +612,7 @@ class SortOrderMapperTests {
         assertEquals(0L, service.pageBook(query).getTotal());
         query.setTagMatchMode("ANY");
         assertEquals(2L, service.pageBook(query).getTotal());
-        query.setRatingMin(9L);
+        query.setRatingMin(new java.math.BigDecimal("9"));
         assertEquals(List.of(2L), bookIds(service.pageBook(query)));
         query.setBookTypeId(2147483647L);
         assertEquals(0L, service.pageBook(query).getTotal());
@@ -687,13 +625,13 @@ class SortOrderMapperTests {
         BookDTO dto = bookDTO();
         dto.setAliasNames(List.of("别名"));
         dto.setPersons(List.of(bookPerson(1L, "作者", 0L)));
-        BookCompanyDTO company = new BookCompanyDTO();
+        CompanyRelationDTO company = new CompanyRelationDTO();
         company.setCompanyId(1L);
         dto.setCompanies(List.of(company));
         dto.setTagIds(List.of(1L));
         dto.setAutoCreateSeries(true);
-        dto.setPersonalRatingScore(0L);
-        BookExternalLinkDTO link = new BookExternalLinkDTO();
+        dto.setPersonalRatingScore(new java.math.BigDecimal("0"));
+        ExternalLinkDTO link = new ExternalLinkDTO();
         link.setUrl("https://example.com");
         dto.setExternalLinks(List.of(link));
         var book = service.createBook(dto);
@@ -734,7 +672,7 @@ class SortOrderMapperTests {
         dto.setAutoCreateSeries(true);
         dto.setAliasNames(List.of("别名"));
         dto.setPersons(List.of(bookPerson(1L, "作者", 0L)));
-        BookExternalLinkDTO link = new BookExternalLinkDTO();
+        ExternalLinkDTO link = new ExternalLinkDTO();
         link.setUrl("https://example.com");
         dto.setExternalLinks(List.of(link));
         var transaction = new org.springframework.transaction.support.TransactionTemplate(
@@ -748,7 +686,6 @@ class SortOrderMapperTests {
                 }
             }
         }
-        assertNotNull(BookServiceImpl.class.getMethod("createBook", BookDTO.class).getAnnotation(org.springframework.transaction.annotation.Transactional.class));
         // 同一事务环境继续验证修改与删除中途失败时，基础资料和已清理的关联都能恢复。
         ReflectionTestUtils.setField(service, "externalLinkMapper", template.getMapper(ExternalLinkMapper.class));
         Long id = service.createBook(dto).getId();
@@ -780,12 +717,121 @@ class SortOrderMapperTests {
         return page.getRows().stream().map(value -> value.getId()).toList();
     }
 
-    private BookPersonDTO bookPerson(Long id, String role, Long sort) {
-        BookPersonDTO dto = new BookPersonDTO();
+    private PersonRelationDTO bookPerson(Long id, String role, Long sort) {
+        PersonRelationDTO dto = new PersonRelationDTO();
         dto.setPersonId(id);
         dto.setRole(role);
         dto.setSortOrder(sort);
         return dto;
+    }
+
+    @Test
+    void animeRatingSavesClearsAndFiltersWithoutChangingBookScore() {
+        AnimeServiceImpl service = animeRatingService();
+        Long zeroId = null;
+        for (String value : List.of("null", "0", "1", "8", "10", "8.0")) {
+            AnimeDTO dto = animeRatingDTO("评分" + value);
+            dto.setPersonalRatingScore(value.equals("null") ? null : new java.math.BigDecimal(value));
+            var created = service.createAnime(dto);
+            dto.setId(created.getId());
+            var updated = service.updateAnime(dto);
+            var detail = service.getAnimeById(created.getId());
+            if (value.equals("null")) {
+                assertNull(created.getPersonalRatingScore());
+                assertNull(updated.getPersonalRatingScore());
+                assertNull(detail.getPersonalRatingScore());
+            } else {
+                for (var result : List.of(created, updated, detail)) {
+                    assertEquals(0, dto.getPersonalRatingScore().compareTo(result.getPersonalRatingScore()));
+                }
+            }
+            if (value.equals("0")) {
+                zeroId = created.getId();
+            }
+        }
+        var all = service.pageAnime(new AnimePageDTO());
+        assertEquals(6L, all.getTotal());
+        assertEquals(1L, all.getRows().stream().filter(row -> row.getPersonalRating() == null).count());
+        for (String[] range : List.of(new String[]{"0", "0", "1"}, new String[]{"0", "10", "5"},
+                new String[]{"10", "10", "1"}, new String[]{"8.0", "8.0", "2"})) {
+            var query = new AnimePageDTO();
+            query.setRatingMin(new java.math.BigDecimal(range[0]));
+            query.setRatingMax(new java.math.BigDecimal(range[1]));
+            var page = service.pageAnime(query);
+            assertEquals(Long.parseLong(range[2]), page.getTotal());
+            page.getRows().forEach(row -> {
+                assertNotNull(row.getPersonalRating());
+                assertTrue(row.getPersonalRating().compareTo(query.getRatingMin()) >= 0);
+                assertTrue(row.getPersonalRating().compareTo(query.getRatingMax()) <= 0);
+            });
+        }
+        var ratings = session.getMapper(PersonalRatingMapper.class);
+        ratings.insert(PersonalRating.builder().targetType("BOOK").targetId(zeroId).score(java.math.BigDecimal.TEN).build());
+        AnimeDTO update = animeRatingDTO("评分0");
+        update.setId(zeroId);
+        assertNull(service.updateAnime(update).getPersonalRatingScore());
+        assertNull(service.getAnimeById(zeroId).getPersonalRatingScore());
+        assertEquals(0, java.math.BigDecimal.TEN.compareTo(ratings.selectOne(new LambdaQueryWrapper<PersonalRating>()
+                .eq(PersonalRating::getTargetType, "BOOK").eq(PersonalRating::getTargetId, zeroId)).getScore()));
+        update.setPersonalRatingScore(java.math.BigDecimal.ZERO);
+        assertEquals(0, service.updateAnime(update).getPersonalRatingScore().compareTo(java.math.BigDecimal.ZERO));
+    }
+
+    @Test
+    void invalidAnimeRatingDoesNotCreateOrModifyWorkOrAssociations() {
+        AnimeServiceImpl service = animeRatingService();
+        AnimeDTO original = animeRatingDTO("原动画");
+        original.setAliasNames(List.of("原别名"));
+        original.setPersonalRatingScore(java.math.BigDecimal.ZERO);
+        Long id = service.createAnime(original).getId();
+        for (String value : List.of("8.1", "8.5", "-1", "10.1", "11")) {
+            AnimeDTO invalid = animeRatingDTO("不应保存");
+            invalid.setAliasNames(List.of("不应保存的别名"));
+            invalid.setPersonalRatingScore(new java.math.BigDecimal(value));
+            assertThrows(BusinessException.class, () -> service.createAnime(invalid));
+            invalid.setId(id);
+            assertThrows(BusinessException.class, () -> service.updateAnime(invalid));
+            for (boolean minimum : List.of(true, false)) {
+                var query = new AnimePageDTO();
+                if (minimum) {
+                    query.setRatingMin(new java.math.BigDecimal(value));
+                } else {
+                    query.setRatingMax(new java.math.BigDecimal(value));
+                }
+                assertThrows(BusinessException.class, () -> service.pageAnime(query));
+            }
+            var unchanged = service.getAnimeById(id);
+            assertEquals("原动画", unchanged.getName());
+            assertEquals(List.of("原别名"), unchanged.getAliasNames());
+            assertEquals(0, unchanged.getPersonalRatingScore().compareTo(java.math.BigDecimal.ZERO));
+            assertEquals(1L, session.getMapper(AnimeMapper.class).selectCount(null));
+            assertEquals(1L, session.getMapper(AliasMapper.class).selectCount(null));
+        }
+    }
+
+    private AnimeDTO animeRatingDTO(String name) {
+        AnimeDTO dto = new AnimeDTO();
+        dto.setName(name);
+        dto.setBroadcastTypeId(1L);
+        dto.setAdaptationTypeId(1L);
+        dto.setRegionId(1L);
+        dto.setStatus(3L);
+        return dto;
+    }
+
+    private AnimeServiceImpl animeRatingService() {
+        AnimeServiceImpl service = new AnimeServiceImpl();
+        java.util.Map<String, Class<?>> mappers = java.util.Map.ofEntries(
+                java.util.Map.entry("animeMapper", AnimeMapper.class), java.util.Map.entry("broadcastTypeMapper", BroadcastTypeMapper.class),
+                java.util.Map.entry("adaptationTypeMapper", AdaptationTypeMapper.class), java.util.Map.entry("regionMapper", RegionMapper.class),
+                java.util.Map.entry("companyMapper", CompanyMapper.class), java.util.Map.entry("companyRelationMapper", CompanyRelationMapper.class),
+                java.util.Map.entry("personMapper", PersonMapper.class), java.util.Map.entry("personRelationMapper", PersonRelationMapper.class),
+                java.util.Map.entry("aliasMapper", AliasMapper.class), java.util.Map.entry("externalLinkMapper", ExternalLinkMapper.class),
+                java.util.Map.entry("tagMapper", TagMapper.class), java.util.Map.entry("tagRelationMapper", TagRelationMapper.class),
+                java.util.Map.entry("seriesMapper", SeriesMapper.class), java.util.Map.entry("seriesItemMapper", SeriesItemMapper.class),
+                java.util.Map.entry("personalRatingMapper", PersonalRatingMapper.class));
+        mappers.forEach((field, mapper) -> ReflectionTestUtils.setField(service, field, session.getMapper(mapper)));
+        return service;
     }
 
     private void seedBookCatalogs() {

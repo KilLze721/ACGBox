@@ -4,6 +4,8 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 import org.killze.acgbox.dto.common.PageDTO;
 import java.util.List;
+import java.math.BigDecimal;
+import org.killze.acgbox.validation.IntegerScore;
 
 /**
  * 书籍分页筛选参数，各条件按 AND 组合。
@@ -74,12 +76,14 @@ public class BookPageDTO extends PageDTO {
     /**
      * 最低整数个人评分。
      */
-    private Long ratingMin;
+    @IntegerScore(message = "ratingMin必须为 0 到 10 的整数")
+    private BigDecimal ratingMin;
 
     /**
      * 最高整数个人评分。
      */
-    private Long ratingMax;
+    @IntegerScore(message = "ratingMax必须为 0 到 10 的整数")
+    private BigDecimal ratingMax;
 
     /**
      * PUBLISH_DATE 或 PERSONAL_RATING，默认 PUBLISH_DATE。

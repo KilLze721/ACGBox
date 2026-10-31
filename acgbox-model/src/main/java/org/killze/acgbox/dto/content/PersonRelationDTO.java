@@ -6,8 +6,6 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import lombok.Data;
-import org.killze.acgbox.deserializer.SortOrderDeserializer;
-import tools.jackson.databind.annotation.JsonDeserialize;
 
 /**
  * 动画人物关联请求，目标类型和目标 ID 由动画服务设置。
@@ -33,6 +31,5 @@ public class PersonRelationDTO {
      */
     @Min(value = 0L, message = "人物排序值不能小于 0")
     @Max(value = 2147483647L, message = "人物排序值不能大于 2147483647")
-    @JsonDeserialize(using = SortOrderDeserializer.class)
     private Long sortOrder;
 }

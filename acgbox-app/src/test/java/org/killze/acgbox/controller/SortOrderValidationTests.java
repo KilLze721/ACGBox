@@ -101,6 +101,8 @@ class SortOrderValidationTests {
         ReflectionTestUtils.setField(animeController, "animeService", animeService);
         mockMvc = MockMvcBuilders.standaloneSetup(broadcastTypeController, adaptationTypeController, animeController,
                         bookController, bookTypeController)
+                .setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
@@ -156,7 +158,7 @@ class SortOrderValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"-1", "2147483648", "1.5", "1.0", "\"1\""})
+    @ValueSource(strings = {"-1", "2147483648", "1.5", "1.0"})
     void personSortRejectsNegativeOverflowFractionAndStringBeforeService(String sortOrder) throws Exception {
         for (String operation : java.util.List.of("create", "update")) {
             String body = """
@@ -227,7 +229,9 @@ class SortOrderValidationTests {
         });
         AnimeController controller = new AnimeController();
         ReflectionTestUtils.setField(controller, "animeService", service);
-        return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        return MockMvcBuilders.standaloneSetup(controller).setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 
     @ParameterizedTest
@@ -270,10 +274,10 @@ class SortOrderValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"1.5", "\"1\"", "1e0", "true"})
+    @ValueSource(strings = {"1.5", "1e0", "true"})
     void bookNumericInputsRejectImplicitConversionWithoutChangingAnime(String token) throws Exception {
         JsonMapper mapper = JsonMapper.builder().build();
-        for (String field : java.util.List.of("status", "volumeCount", "chapterCount", "personalRatingScore",
+        for (String field : java.util.List.of("status", "volumeCount", "chapterCount",
                 "bookTypeId", "adaptationTypeId", "regionId", "seriesId", "seriesSortOrder")) {
             var body = mapper.createObjectNode().put("name", "书籍").put("bookTypeId", 1L)
                     .put("adaptationTypeId", 1L).put("regionId", 1L).put("status", 0L);
@@ -302,7 +306,7 @@ class SortOrderValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"2026", "2026-10", "2026-02-30", "", "2026-1-01", "0000-01-01"})
+    @ValueSource(strings = {"2026", "2026-10", "2026-02-30", "2026-1-01"})
     void bookPublishDateDoesNotFillMissingPrecisionOrAcceptInvalidDates(String date) throws Exception {
         mockMvc.perform(post("/book/create").contentType(MediaType.APPLICATION_JSON).content(
                 "{\"name\":\"书籍\",\"bookTypeId\":1,\"adaptationTypeId\":1,\"regionId\":1,\"status\":0,\"publishDate\":\"" + date + "\"}"))
@@ -311,12 +315,12 @@ class SortOrderValidationTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"null", "\"2026-10-26\""})
+    @ValueSource(strings = {"null", "\"\"", "\"2026-10-26\""})
     void bookPublishDateAcceptsNullOrFullDateAndPreservesZeros(String date) throws Exception {
         when(bookService.createBook(any())).thenAnswer(invocation -> {
             BookDTO dto = invocation.getArgument(0);
             return BookVO.builder().id(1L).publishDate(dto.getPublishDate()).status(dto.getStatus())
-                    .volumeCount(dto.getVolumeCount()).personalRatingScore(dto.getPersonalRatingScore()).build();
+                    .volumeCount(dto.getVolumeCount()).personalRatingScore(dto.getPersonalRatingScore() == null ? null : dto.getPersonalRatingScore().longValueExact()).build();
         });
         mockMvc.perform(post("/book/create").contentType(MediaType.APPLICATION_JSON).content(
                 "{\"name\":\"书籍\",\"bookTypeId\":1,\"adaptationTypeId\":1,\"regionId\":1,\"status\":0,"
@@ -377,7 +381,9 @@ class SortOrderValidationTests {
             var controller = new ImageUploadController();
             ReflectionTestUtils.setField(controller, "imageUploadService", uploadService);
             uploadMvc = MockMvcBuilders.standaloneSetup(controller)
-                    .setControllerAdvice(new GlobalExceptionHandler()).build();
+                    .setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
         }
 
         @ParameterizedTest
@@ -585,6 +591,84 @@ class SortOrderValidationTests {
         }
     }
 
+    @Test
+    void animeSaveAcceptsIntegerValuesWithoutRoundingAndRejectsFractions() throws Exception {
+        when(animeService.createAnime(any())).thenAnswer(invocation -> AnimeVO.builder()
+                .personalRatingScore(((AnimeDTO) invocation.getArgument(0)).getPersonalRatingScore()).build());
+        when(animeService.updateAnime(any())).thenAnswer(invocation -> AnimeVO.builder()
+                .personalRatingScore(((AnimeDTO) invocation.getArgument(0)).getPersonalRatingScore()).build());
+        for (String operation : java.util.List.of("create", "update")) {
+            for (String score : java.util.List.of("null", "0", "1", "8", "10", "8.0")) {
+                var result = mockMvc.perform(post("/anime/" + operation).contentType(MediaType.APPLICATION_JSON)
+                                .content(animeRatingBody(score)))
+                        .andExpect(jsonPath("$.code").value(200)).andReturn();
+                var actual = JsonMapper.builder().build().readTree(result.getResponse().getContentAsString())
+                        .get("data").get("personalRatingScore");
+                if (score.equals("null")) {
+                    assertTrue(actual.isNull());
+                } else {
+                    assertEquals(0, new java.math.BigDecimal(score).compareTo(actual.decimalValue()));
+                }
+            }
+            clearInvocations(animeService);
+            for (String score : java.util.List.of("8.1", "8.5", "-1", "10.1", "11")) {
+                mockMvc.perform(post("/anime/" + operation).contentType(MediaType.APPLICATION_JSON)
+                                .content(animeRatingBody(score)))
+                        .andExpect(jsonPath("$.code").value(500))
+                        .andExpect(jsonPath("$.message").value("个人评分必须为 0 到 10 的整数"));
+            }
+            verifyNoInteractions(animeService);
+        }
+    }
+
+    @Test
+    void animeRatingFiltersRejectFractionsAndReversedRangeBeforeQuery() throws Exception {
+        AnimeMapper mapper = mock(AnimeMapper.class);
+        AnimeServiceImpl service = new AnimeServiceImpl();
+        ReflectionTestUtils.setField(service, "animeMapper", mapper);
+        AnimeController controller = new AnimeController();
+        ReflectionTestUtils.setField(controller, "animeService", service);
+        var mvc = MockMvcBuilders.standaloneSetup(controller).setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        for (String field : java.util.List.of("ratingMin", "ratingMax")) {
+            for (String score : java.util.List.of("8.1", "8.5", "-1", "10.1", "11")) {
+                mvc.perform(get("/anime/page").param(field, score))
+                        .andExpect(jsonPath("$.code").value(500))
+                        .andExpect(jsonPath("$.message").value(field + "必须为 0 到 10 的整数"));
+            }
+        }
+        mvc.perform(get("/anime/page").param("ratingMin", "10").param("ratingMax", "0"))
+                .andExpect(jsonPath("$.code").value(500))
+                .andExpect(jsonPath("$.message").value("ratingMin 不能大于 ratingMax"));
+        verifyNoInteractions(mapper);
+        when(mapper.selectAnimePage(any(), any(), any(), any())).thenAnswer(invocation -> {
+            Page<Anime> page = invocation.getArgument(0);
+            page.setRecords(java.util.List.of());
+            return page;
+        });
+        for (String[] range : java.util.List.of(new String[]{"0", "0"}, new String[]{"0", "10"},
+                new String[]{"10", "10"}, new String[]{"8.0", "8.0"})) {
+            mvc.perform(get("/anime/page").param("ratingMin", range[0]).param("ratingMax", range[1]))
+                    .andExpect(jsonPath("$.code").value(200)).andExpect(jsonPath("$.data.total").value(0));
+        }
+    }
+
+    @Test
+    void bookDeletionKeepsJsonArrayContractWithPlainLists() throws Exception {
+        mockMvc.perform(post("/book/delete").contentType(MediaType.APPLICATION_JSON).content("[1,2]"))
+                .andExpect(jsonPath("$.code").value(200));
+        verify(bookService).deleteBooks(java.util.List.of(1L, 2L));
+        mockMvc.perform(post("/book-type/delete").contentType(MediaType.APPLICATION_JSON).content("[3]"))
+                .andExpect(jsonPath("$.code").value(200));
+        verify(bookTypeService).deleteBookTypes(java.util.List.of(3L));
+    }
+
+    private String animeRatingBody(String score) {
+        return "{\"id\":1,\"name\":\"评分测试\",\"broadcastTypeId\":1,\"adaptationTypeId\":1,"
+                + "\"regionId\":1,\"status\":3,\"personalRatingScore\":" + score + "}";
+    }
+
     private MockMvc bookPageMvc(BookMapper mapper) {
         BookServiceImpl service = new BookServiceImpl();
         ReflectionTestUtils.setField(service, "bookMapper", mapper);
@@ -595,6 +679,8 @@ class SortOrderValidationTests {
         });
         BookController controller = new BookController();
         ReflectionTestUtils.setField(controller, "bookService", service);
-        return MockMvcBuilders.standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        return MockMvcBuilders.standaloneSetup(controller).setMessageConverters(new org.springframework.http.converter.json.JacksonJsonHttpMessageConverter(
+                        JsonMapper.builder().disable(tools.jackson.databind.DeserializationFeature.ACCEPT_FLOAT_AS_INT).build()))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
     }
 }

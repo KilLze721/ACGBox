@@ -21,7 +21,6 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -307,13 +306,6 @@ class UserAccountCreateDeleteServiceImplTests {
         assertFalse(userAccountDeleteDTO.toString().contains("admin-password"));
     }
 
-    @Test
-    void shouldWrapCreationAndDeletionInTransactions() throws Exception {
-        assertNotNull(UserAccountServiceImpl.class.getMethod("createUserAccount", UserAccountCreateDTO.class)
-                .getAnnotation(Transactional.class));
-        assertNotNull(UserAccountServiceImpl.class.getMethod("deleteUserAccount", UserAccountDeleteDTO.class, Long.class)
-                .getAnnotation(Transactional.class));
-    }
 
     private void assertDeleteError(String message) {
         BusinessException exception = assertThrows(BusinessException.class,

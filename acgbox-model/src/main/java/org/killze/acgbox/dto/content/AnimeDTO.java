@@ -2,9 +2,7 @@ package org.killze.acgbox.dto.content;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.DecimalMax;
-import jakarta.validation.constraints.DecimalMin;
-import jakarta.validation.constraints.Digits;
+import org.killze.acgbox.validation.IntegerScore;
 import jakarta.validation.Valid;
 import lombok.Data;
 
@@ -117,10 +115,8 @@ public class AnimeDTO {
     private Boolean autoCreateSeries;
 
     /**
-     * 个人评分，范围 0 到 10，支持一位小数
+     * 个人评分，可空；非空为 0 到 10 的整数，8.0 与 8 等价。
      */
-    @DecimalMin(value = "0.0", message = "个人评分不能小于 0")
-    @DecimalMax(value = "10.0", message = "个人评分不能大于 10")
-    @Digits(integer = 2, fraction = 1, message = "个人评分最多支持一位小数")
+    @IntegerScore(message = "个人评分必须为 0 到 10 的整数")
     private BigDecimal personalRatingScore;
 }
