@@ -664,6 +664,69 @@ class SortOrderValidationTests {
         verify(bookTypeService).deleteBookTypes(java.util.List.of(3L));
     }
 
+    @Test
+    void transferFilesKeepTextZerosDatesAndRowKeyAssociations() throws Exception {
+        JsonMapper json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        var first = json.createObjectNode().put("rowKey", "W2").put("name", "另一作品");
+        var second = json.createObjectNode().put("rowKey", "W1").put("name", "=原文,不是公式")
+                .put("description", "中文简介\n第二行").put("status", 0).put("volumeCount", 0)
+                .put("personalRatingScore", 0).put("publishDate", "2026-11-02");
+        var company = json.createObjectNode().put("rowKey", "W1").put("companyId", 3).put("companyName", "公司,名称").put("sortOrder", 0);
+        var data = java.util.Map.of("works", java.util.List.of(first, second), "companies", java.util.List.of(company));
+        byte[] bytes = files.write("BOOK", "EXPORT", data);
+        var parsed = files.read("BOOK", new MockMultipartFile("file", "books.xlsx", "application/octet-stream", bytes));
+        assertEquals(0, parsed.problems().errorCount);
+        assertEquals("W2", parsed.rows().getFirst().rowKey());
+        var actual = parsed.rows().get(1).data();
+        assertEquals("=原文,不是公式", actual.path("name").asText());
+        assertEquals("中文简介\n第二行", actual.path("description").asText());
+        assertEquals(0, actual.path("personalRatingScore").asInt());
+        assertEquals(0, actual.path("volumeCount").asInt());
+        assertEquals("2026-11-02", actual.path("publishDate").asText());
+        assertEquals(3, actual.path("companies").get(0).path("companyId").asInt());
+        assertTrue(parsed.rows().getFirst().data().path("companies").isEmpty());
+        assertThrows(BusinessException.class, () -> files.read("ANIME", new MockMultipartFile("file", "books.xlsx", null, bytes)));
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            assertEquals(org.apache.poi.ss.usermodel.CellType.STRING, book.getSheet("works").getRow(2).getCell(2).getCellType());
+        }
+    }
+
+    @Test
+    void transferFormulaIsRejectedWithOriginalExcelPosition() throws Exception {
+        JsonMapper json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        byte[] template = files.write("ANIME", "TEMPLATE", java.util.Map.of());
+        byte[] bytes;
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(template));
+             var output = new ByteArrayOutputStream()) {
+            var row = book.getSheet("works").createRow(1);
+            row.createCell(0).setCellValue("W1");
+            row.createCell(2).setCellFormula("1+1");
+            book.write(output); bytes = output.toByteArray();
+        }
+        var parsed = files.read("ANIME", new MockMultipartFile("file", "anime.xlsx", null, bytes));
+        assertEquals(1, parsed.problems().errorCount);
+        var error = parsed.problems().errors.getFirst();
+        assertEquals("works", error.sheet()); assertEquals(2L, error.row());
+        assertEquals("name", error.field()); assertEquals("W1", error.rowKey());
+    }
+
+    @Test
+    void transferDownloadAndFileSizeErrorsKeepFileSemantics() throws Exception {
+        var service = mock(org.killze.acgbox.service.impl.DataTransferServiceImpl.class);
+        when(service.template("ANIME", "ANIME")).thenReturn(new org.killze.acgbox.service.impl.DataTransferServiceImpl.Download("ACGBox_ANIME_template.xlsx", new byte[]{1, 2}));
+        var mvc = MockMvcBuilders.standaloneSetup(new DataTransferController(service))
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        mvc.perform(get("/data-transfer/anime/template").servletPath("/data-transfer/anime/template").param("targetType", "ANIME"))
+                .andExpect(status().isOk()).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.header().string("Content-Length", "2"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"));
+        when(service.preview(any(), any(), anyLong(), any())).thenThrow(new MaxUploadSizeExceededException(5242880));
+        mvc.perform(multipart("/data-transfer/book/import/preview").file("file", new byte[]{1}).param("targetType", "BOOK")
+                        .servletPath("/data-transfer/book/import/preview").principal(() -> "1"))
+                .andExpect(status().is(413)).andExpect(jsonPath("$.message").value("Excel 文件不能超过 5 MiB，上传请求不能超过 6 MiB"));
+    }
+
     private String animeRatingBody(String score) {
         return "{\"id\":1,\"name\":\"评分测试\",\"broadcastTypeId\":1,\"adaptationTypeId\":1,"
                 + "\"regionId\":1,\"status\":3,\"personalRatingScore\":" + score + "}";

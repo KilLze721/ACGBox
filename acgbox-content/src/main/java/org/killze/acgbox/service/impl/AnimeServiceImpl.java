@@ -42,6 +42,8 @@ import org.killze.acgbox.vo.content.TagVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
@@ -120,19 +122,19 @@ public class AnimeServiceImpl implements AnimeService {
      * @return 动画信息
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public AnimeVO createAnime(AnimeDTO animeDTO) {
-        validateRatingValue(animeDTO.getPersonalRatingScore(), "个人评分");
+        return createAnimeInTransaction(animeDTO);
+    }
+
+    /** 供整批导入在已存在的外层事务和保存点内保存，不另开事务。 */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY,
+            noRollbackFor = {BusinessException.class, org.springframework.dao.DataIntegrityViolationException.class})
+    public AnimeVO createAnimeInTransaction(AnimeDTO animeDTO) {
+        lockAnimeNames();
+        animeDTO = prepareAnime(animeDTO);
         // 在写入动画前校验人员及职责，避免无效人物关联进入保存流程。
-        List<PersonRelationDTO> persons = buildPersons(animeDTO.getPersons());
-        // 判断此动画是否存在。
-        Anime exist = animeMapper.selectOne(
-                new LambdaQueryWrapper<Anime>()
-                        .eq(Anime::getName, animeDTO.getName())
-        );
-        if (exist != null) {
-            throw new BusinessException("此动画已存在");
-        }
+        List<PersonRelationDTO> persons = animeDTO.getPersons();
         // 创建动画。
         Anime anime = Anime.builder()
                 .name(animeDTO.getName())
@@ -151,7 +153,7 @@ public class AnimeServiceImpl implements AnimeService {
         // 创建动画人物关联，关联目标由当前动画确定。
         saveAnimePersons(anime.getId(), persons);
         // 创建动画别名。
-        List<String> aliasNames = buildAliasNames(animeDTO.getAliasNames());
+        List<String> aliasNames = animeDTO.getAliasNames();
         for (int i = 0; i < aliasNames.size(); i++) {
             aliasMapper.insert(Alias.builder()
                     .targetType("ANIME")
@@ -161,7 +163,7 @@ public class AnimeServiceImpl implements AnimeService {
                     .build());
         }
         // 创建动画公司关联。
-        List<CompanyRelationDTO> companies = buildCompanies(animeDTO.getCompanies());
+        List<CompanyRelationDTO> companies = animeDTO.getCompanies();
         for (int i = 0; i < companies.size(); i++) {
             CompanyRelationDTO company = companies.get(i);
             if (company.getSortOrder() == null) {
@@ -176,7 +178,7 @@ public class AnimeServiceImpl implements AnimeService {
                     .build());
         }
         // 创建动画外部链接。
-        List<ExternalLinkDTO> externalLinks = buildExternalLinks(animeDTO.getExternalLinks());
+        List<ExternalLinkDTO> externalLinks = animeDTO.getExternalLinks();
         externalLinks.forEach(externalLink -> externalLinkMapper.insert(
                 ExternalLink.builder()
                         .targetType("ANIME")
@@ -187,7 +189,7 @@ public class AnimeServiceImpl implements AnimeService {
                         .build()
         ));
         // 创建动画标签关联。
-        List<Long> tagIds = buildTagIds(animeDTO.getTagIds());
+        List<Long> tagIds = animeDTO.getTagIds();
         tagIds.forEach(tagId -> tagRelationMapper.insert(
                 TagRelation.builder()
                         .targetType("ANIME")
@@ -212,6 +214,39 @@ public class AnimeServiceImpl implements AnimeService {
         BigDecimal personalRatingScore = saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
         // 返回动画信息。
         return buildAnimeVO(anime, aliasNames, companies, externalLinks, tagIds, seriesId, seriesSortOrder, personalRatingScore);
+    }
+
+    /** 共享的无业务写入清洗，保留名称原值和现有去重、排序语义。 */
+    public AnimeDTO prepareAnime(AnimeDTO input) {
+        AnimeDTO dto = new AnimeDTO();
+        org.springframework.beans.BeanUtils.copyProperties(input, dto);
+        validateRatingValue(dto.getPersonalRatingScore(), "个人评分");
+        if (animeMapper.selectCount(new LambdaQueryWrapper<Anime>().eq(Anime::getName, dto.getName())) > 0) {
+            throw new BusinessException("此动画已存在");
+        }
+        dto.setAliasNames(buildAliasNames(dto.getAliasNames()));
+        List<CompanyRelationDTO> companies = buildCompanies(dto.getCompanies());
+        for (int i = 0; i < companies.size(); i++) {
+            if (companies.get(i).getSortOrder() == null) {
+                companies.get(i).setSortOrder((long) i);
+            }
+        }
+        dto.setCompanies(companies);
+        dto.setPersons(buildPersons(dto.getPersons()));
+        dto.setExternalLinks(buildExternalLinks(dto.getExternalLinks()));
+        dto.setTagIds(buildTagIds(dto.getTagIds()));
+        if (dto.getSeriesId() != null && seriesMapper.selectById(dto.getSeriesId()) == null) {
+            throw new BusinessException("系列不存在");
+        }
+        dto.setSeriesSortOrder(dto.getSeriesId() == null ? null : buildSeriesSortOrder(dto));
+        return dto;
+    }
+
+    /** 锁键为项目保留的动画名称写锁，仅在实际事务中取得。 */
+    private void lockAnimeNames() {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            animeMapper.lockAnimeNames();
+        }
     }
 
     /**
@@ -530,8 +565,9 @@ public class AnimeServiceImpl implements AnimeService {
      * @return 动画信息
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, isolation = Isolation.READ_COMMITTED)
     public AnimeVO updateAnime(AnimeDTO animeDTO) {
+        lockAnimeNames();
         validateRatingValue(animeDTO.getPersonalRatingScore(), "个人评分");
         // 判断动画 ID 是否为空。
         if (animeDTO.getId() == null) {
@@ -828,6 +864,16 @@ public class AnimeServiceImpl implements AnimeService {
         );
         // 删除动画。
         animeMapper.deleteByIds(ids);
+    }
+
+    /** 复用列表筛选规则，仅选择受限作品集合，不提前聚合关联。 */
+    public List<Anime> selectAnimeForExport(AnimePageDTO dto) {
+        dto.setPageNum(1L);
+        dto.setPageSize(100L);
+        BroadcastDateRange range = normalizeAnimePageDTO(dto);
+        IPage<Anime> page = animeMapper.selectAnimePage(new Page<>(1, 501), dto, range.startDate(), range.endDate());
+        if (page.getTotal() > 500) throw new BusinessException("导出结果超过 500 部，请缩小筛选范围");
+        return page.getRecords();
     }
 
     /**
@@ -1468,9 +1514,12 @@ public class AnimeServiceImpl implements AnimeService {
             if (externalLink == null || !StringUtils.hasText(externalLink.getUrl())) {
                 return;
             }
+            if (!StringUtils.hasText(externalLink.getTitle())) {
+                throw new BusinessException("动画外链标题不能为空");
+            }
             String url = externalLink.getUrl().trim();
             ExternalLinkDTO dto = new ExternalLinkDTO();
-            dto.setTitle(StringUtils.hasText(externalLink.getTitle()) ? externalLink.getTitle().trim() : null);
+            dto.setTitle(externalLink.getTitle().trim());
             dto.setUrl(url);
             dto.setSortOrder(externalLink.getSortOrder() == null ? 0L : externalLink.getSortOrder());
             externalLinkMap.putIfAbsent(url, dto);

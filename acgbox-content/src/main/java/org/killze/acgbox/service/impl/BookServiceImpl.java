@@ -72,6 +72,13 @@ public class BookServiceImpl implements BookService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public BookVO createBook(BookDTO dto) {
+        return createBookInTransaction(dto);
+    }
+
+    /** 整批提交复用保存路径，事务和保存点由调用方负责。 */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY,
+            noRollbackFor = {BusinessException.class, org.springframework.dao.DataIntegrityViolationException.class})
+    public BookVO createBookInTransaction(BookDTO dto) {
         PreparedBook prepared = prepare(dto, null);
         Long seriesId = resolveSeries(dto, prepared.book().getName(), true);
         bookMapper.insert(prepared.book());
@@ -134,6 +141,19 @@ public class BookServiceImpl implements BookService {
         return loadViews(List.of(getBook(id))).getFirst();
     }
 
+    /** 复用列表筛选规则，导出忽略前端分页且不提前读取关联。 */
+    public List<Book> selectBookForExport(BookPageDTO dto) {
+        dto.setPageNum(1L);
+        dto.setPageSize(100L);
+        normalizePage(dto);
+        LocalDate start = dateBound(dto.getPublishStartDate(), false);
+        LocalDate end = dateBound(dto.getPublishEndDate(), true);
+        if (start != null && end != null && start.isAfter(end)) throw new BusinessException("publishStartDate 不能晚于 publishEndDate");
+        var page = bookMapper.selectBookPage(new Page<>(1, 501), dto, start, end);
+        if (page.getTotal() > 500) throw new BusinessException("导出结果超过 500 部，请缩小筛选范围");
+        return page.getRecords();
+    }
+
     @Override
     public PageVO<BookPageVO> pageBook(BookPageDTO dto) {
         normalizePage(dto);
@@ -150,6 +170,21 @@ public class BookServiceImpl implements BookService {
     /**
      * 校验和清洗全部输入后才开始写入，persons 的 null 专门表示更新时保留。
      */
+    /** 只读取资料并返回实际新增时的清洗结果，不写作品或关联。 */
+    public BookDTO prepareBook(BookDTO input) {
+        PreparedBook prepared = prepare(input, null);
+        BookDTO dto = new BookDTO();
+        org.springframework.beans.BeanUtils.copyProperties(input, dto);
+        org.springframework.beans.BeanUtils.copyProperties(prepared.book(), dto);
+        dto.setAliasNames(prepared.aliases());
+        dto.setCompanies(prepared.companies());
+        dto.setPersons(prepared.persons());
+        dto.setExternalLinks(prepared.links());
+        dto.setTagIds(prepared.tags());
+        dto.setSeriesSortOrder(input.getSeriesId() == null ? null : order(input.getSeriesSortOrder(), 0L));
+        return dto;
+    }
+
     private PreparedBook prepare(BookDTO dto, Long bookId) {
         range(dto.getId(), "id", 1L, 2147483647L, false);
         range(dto.getBookTypeId(), "bookTypeId", 1L, 2147483647L, true);
@@ -167,6 +202,9 @@ public class BookServiceImpl implements BookService {
             integerScore(dto.getPersonalRatingScore());
         }
         range(dto.getSeriesId(), "seriesId", 1L, 2147483647L, false);
+        if (dto.getSeriesId() != null && seriesMapper.selectById(dto.getSeriesId()) == null) {
+            throw new BusinessException("所选系列不存在");
+        }
         range(dto.getSeriesSortOrder(), "seriesSortOrder", -2147483648L, 2147483647L, false);
         if (dto.getPublishDate() != null && (dto.getPublishDate().getYear() < 1 || dto.getPublishDate().getYear() > 9999)) {
             throw new BusinessException("发表日期必须是有效完整日期 yyyy-MM-dd");

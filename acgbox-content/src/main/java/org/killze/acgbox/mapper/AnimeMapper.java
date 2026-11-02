@@ -10,6 +10,9 @@ import org.killze.acgbox.entity.content.Anime;
 import java.time.LocalDate;
 
 public interface AnimeMapper extends BaseMapper<Anime> {
+    /** PostgreSQL 事务级名称写锁，所有应用实例共用，事务结束自动释放。 */
+    @org.apache.ibatis.annotations.Select("SELECT 1 FROM pg_advisory_xact_lock(1094928194, 0)")
+    Long lockAnimeNames();
 
     /**
      * 分页查询动画

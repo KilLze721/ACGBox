@@ -9,6 +9,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.MultipartException;
+import jakarta.servlet.http.HttpServletRequest;
 
 
 /**
@@ -39,17 +40,23 @@ public class GlobalExceptionHandler {
      * 文件或 multipart 请求体超限时返回真实 HTTP 413，其余业务接口状态规则不变。
      */
     @ExceptionHandler(MaxUploadSizeExceededException.class)
-    public ResponseEntity<Result<Void>> handleUploadSizeException(MaxUploadSizeExceededException e) {
+    public ResponseEntity<Result<Void>> handleUploadSizeException(MaxUploadSizeExceededException e, HttpServletRequest request) {
         return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
-                .body(Result.error("图片不能超过 5 MiB，上传请求不能超过 6 MiB"));
+                .body(Result.error(isExcelUpload(request) ? "Excel 文件不能超过 5 MiB，上传请求不能超过 6 MiB" : "图片不能超过 5 MiB，上传请求不能超过 6 MiB"));
     }
 
     /**
      * multipart 表单解析失败时给出明确提示，不暴露底层路径或请求内容。
      */
     @ExceptionHandler(MultipartException.class)
-    public Result<Void> handleMultipartException(MultipartException e) {
-        return Result.error("上传表单解析失败，请使用 multipart/form-data 上传图片");
+    public Result<Void> handleMultipartException(MultipartException e, HttpServletRequest request) {
+        return Result.error(isExcelUpload(request) ? "Excel 表单解析失败，请使用 multipart/form-data 上传文件" : "上传表单解析失败，请使用 multipart/form-data 上传图片");
+    }
+
+    /** 仅按固定上传入口选择文案，不依赖解析失败时不可用的表单字段。 */
+    private boolean isExcelUpload(HttpServletRequest request) {
+        String path = request.getServletPath();
+        return path.equals("/data-transfer/anime/import/preview") || path.equals("/data-transfer/book/import/preview");
     }
 
     /**

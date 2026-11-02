@@ -69,6 +69,9 @@ class SecurityConfigTests {
     @MockitoBean
     private org.killze.acgbox.service.ImageUploadService imageUploadService;
 
+    @MockitoBean
+    private org.killze.acgbox.service.impl.DataTransferServiceImpl dataTransferService;
+
     private UserAccount userAccount;
 
     private MockMvc mockMvc;
@@ -390,8 +393,26 @@ class SecurityConfigTests {
     @EnableWebMvc
     @EnableWebSecurity
     @Import({SecurityConfig.class, JwtConfig.class, TestController.class,
-            org.killze.acgbox.controller.ImageUploadController.class})
+            org.killze.acgbox.controller.ImageUploadController.class, org.killze.acgbox.controller.DataTransferController.class})
     static class TestConfig {
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR", "USER"})
+    void dataTransferKeepsManagementRolePermissions(String role) throws Exception {
+        when(dataTransferService.template("ANIME", "ANIME")).thenReturn(
+                new org.killze.acgbox.service.impl.DataTransferServiceImpl.Download("template.xlsx", new byte[]{1}));
+        mockMvc.perform(get("/data-transfer/anime/template").servletPath("/data-transfer/anime/template")
+                        .param("targetType", "ANIME").header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken(role)))
+                .andExpect(role.equals("USER") ? status().isForbidden() : status().isOk());
+        if (role.equals("USER")) verifyNoInteractions(dataTransferService);
+    }
+
+    @Test
+    void dataTransferRejectsAnonymousBeforeReadingFilesOrDatabase() throws Exception {
+        mockMvc.perform(get("/data-transfer/book/template").param("targetType", "BOOK"))
+                .andExpect(status().isUnauthorized());
+        verifyNoInteractions(dataTransferService);
     }
 
     @ParameterizedTest

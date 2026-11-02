@@ -12,7 +12,7 @@
  Target Server Version : 160003 (160003)
  File Encoding         : 65001
 
- Date: 26/10/2026 16:42:18
+ Date: 02/11/2026 16:09:00
 */
 
 
@@ -422,6 +422,31 @@ COMMENT ON COLUMN "public"."company_relation"."sort_order" IS '同一关联对�
 COMMENT ON TABLE "public"."company_relation" IS '通用公司关联表：记录动画、漫画、小说等对象与公司的关联关系';
 
 -- ----------------------------
+-- Table structure for data_import_batch
+-- ----------------------------
+DROP TABLE IF EXISTS "public"."data_import_batch";
+CREATE TABLE "public"."data_import_batch" (
+  "import_token" varchar(36) COLLATE "pg_catalog"."default" NOT NULL,
+  "account_id" int8 NOT NULL,
+  "target_type" varchar(10) COLLATE "pg_catalog"."default" NOT NULL,
+  "schema_version" int8 NOT NULL,
+  "file_hash" char(64) COLLATE "pg_catalog"."default" NOT NULL,
+  "payload_hash" char(64) COLLATE "pg_catalog"."default" NOT NULL,
+  "work_count" int4 NOT NULL,
+  "status" varchar(16) COLLATE "pg_catalog"."default" NOT NULL,
+  "created_at" timestamptz(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "expires_at" timestamptz(6) NOT NULL,
+  "completed_at" timestamptz(6),
+  "result" jsonb,
+  "reason" varchar(300) COLLATE "pg_catalog"."default"
+)
+;
+COMMENT ON COLUMN "public"."data_import_batch"."import_token" IS '绑定账号和类型的随机批次标识，不写入日志';
+COMMENT ON COLUMN "public"."data_import_batch"."payload_hash" IS '固定 UTF-8 标准化 JSON 的 SHA-256 摘要';
+COMMENT ON COLUMN "public"."data_import_batch"."result" IS '成功新 ID 映射或终态错误定位，不包含完整 payload';
+COMMENT ON TABLE "public"."data_import_batch" IS '导入批次状态与结果，完整预览仅在 Redis 暂存';
+
+-- ----------------------------
 -- Table structure for external_link
 -- ----------------------------
 DROP TABLE IF EXISTS "public"."external_link";
@@ -665,7 +690,7 @@ SELECT setval('"public"."anime_id_seq"', 432, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."book_id_seq"
 OWNED BY "public"."book"."id";
-SELECT setval('"public"."book_id_seq"', 1, true);
+SELECT setval('"public"."book_id_seq"', 2, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -686,42 +711,42 @@ SELECT setval('"public"."broadcast_type_id_seq"', 94, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."company_id_seq"
 OWNED BY "public"."company"."id";
-SELECT setval('"public"."company_id_seq"', 180, true);
+SELECT setval('"public"."company_id_seq"', 181, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_relation_id_seq"
 OWNED BY "public"."company_relation"."id";
-SELECT setval('"public"."company_relation_id_seq"', 201, true);
+SELECT setval('"public"."company_relation_id_seq"', 215, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."external_link_id_seq"
 OWNED BY "public"."external_link"."id";
-SELECT setval('"public"."external_link_id_seq"', 149, true);
+SELECT setval('"public"."external_link_id_seq"', 161, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_id_seq"
 OWNED BY "public"."person"."id";
-SELECT setval('"public"."person_id_seq"', 1, true);
+SELECT setval('"public"."person_id_seq"', 2, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_relation_id_seq"
 OWNED BY "public"."person_relation"."id";
-SELECT setval('"public"."person_relation_id_seq"', 1, true);
+SELECT setval('"public"."person_relation_id_seq"', 12, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."personal_rating_id_seq"
 OWNED BY "public"."personal_rating"."id";
-SELECT setval('"public"."personal_rating_id_seq"', 317, true);
+SELECT setval('"public"."personal_rating_id_seq"', 318, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -735,28 +760,28 @@ SELECT setval('"public"."region_id_seq"', 95, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."series_id_seq"
 OWNED BY "public"."series"."id";
-SELECT setval('"public"."series_id_seq"', 187, true);
+SELECT setval('"public"."series_id_seq"', 188, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."series_item_id_seq"
 OWNED BY "public"."series_item"."id";
-SELECT setval('"public"."series_item_id_seq"', 196, true);
+SELECT setval('"public"."series_item_id_seq"', 205, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_id_seq"
 OWNED BY "public"."tag"."id";
-SELECT setval('"public"."tag_id_seq"', 274, true);
+SELECT setval('"public"."tag_id_seq"', 276, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_relation_id_seq"
 OWNED BY "public"."tag_relation"."id";
-SELECT setval('"public"."tag_relation_id_seq"', 644, true);
+SELECT setval('"public"."tag_relation_id_seq"', 695, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -905,6 +930,31 @@ ALTER TABLE "public"."company_relation" ADD CONSTRAINT "company_relation_target_
 -- Primary Key structure for table company_relation
 -- ----------------------------
 ALTER TABLE "public"."company_relation" ADD CONSTRAINT "company_relation_pkey" PRIMARY KEY ("id");
+
+-- ----------------------------
+-- Indexes structure for table data_import_batch
+-- ----------------------------
+CREATE INDEX "idx_data_import_batch_cleanup" ON "public"."data_import_batch" USING btree (
+  "completed_at" "pg_catalog"."timestamptz_ops" ASC NULLS LAST
+) WHERE status::text <> 'READY'::text;
+CREATE INDEX "idx_data_import_batch_owner_ready" ON "public"."data_import_batch" USING btree (
+  "account_id" "pg_catalog"."int8_ops" ASC NULLS LAST,
+  "expires_at" "pg_catalog"."timestamptz_ops" ASC NULLS LAST
+) WHERE status::text = 'READY'::text;
+
+-- ----------------------------
+-- Checks structure for table data_import_batch
+-- ----------------------------
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'BOOK'::character varying]::text[]));
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_schema_version_check" CHECK (schema_version = 1);
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_work_count_check" CHECK (work_count >= 1 AND work_count <= 500);
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_status_check" CHECK (status::text = ANY (ARRAY['READY'::character varying, 'SUCCEEDED'::character varying, 'INVALID'::character varying, 'CANCELLED'::character varying, 'EXPIRED'::character varying]::text[]));
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_check" CHECK (status::text = 'READY'::text AND completed_at IS NULL OR status::text <> 'READY'::text AND completed_at IS NOT NULL);
+
+-- ----------------------------
+-- Primary Key structure for table data_import_batch
+-- ----------------------------
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_pkey" PRIMARY KEY ("import_token");
 
 -- ----------------------------
 -- Indexes structure for table external_link

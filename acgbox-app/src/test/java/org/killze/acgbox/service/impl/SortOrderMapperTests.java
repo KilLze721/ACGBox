@@ -713,6 +713,157 @@ class SortOrderMapperTests {
         assertEquals(1L, template.getMapper(SeriesItemMapper.class).selectCount(null));
     }
 
+    @Test
+    void sharedPreviewPreparationDoesNotCreateWorksOrAutomaticSeries() {
+        seedBookCatalogs();
+        BookDTO input = bookDTO();
+        input.setAutoCreateSeries(true);
+        input.setAliasNames(List.of(" 别名 ", "别名"));
+        var prepared = bookService().prepareBook(input);
+        assertEquals(List.of("别名"), prepared.getAliasNames());
+        AnimeDTO anime = animeRatingDTO("预览动画");
+        anime.setAutoCreateSeries(true);
+        anime.setAliasNames(List.of(" 别名 ", "别名"));
+        assertEquals(List.of("别名"), animeRatingService().prepareAnime(anime).getAliasNames());
+        assertEquals(0L, session.getMapper(BookMapper.class).selectCount(null));
+        assertEquals(0L, session.getMapper(AnimeMapper.class).selectCount(null));
+        assertEquals(0L, session.getMapper(SeriesMapper.class).selectCount(null));
+        assertEquals(0L, session.getMapper(AliasMapper.class).selectCount(null));
+    }
+
+    @Test
+    void batchSavepointCanUndoAllWorksAndStillPersistFailureOutcome() throws Exception {
+        seedBookCatalogs();
+        var config = session.getConfiguration();
+        var source = config.getEnvironment().getDataSource();
+        config.setEnvironment(new Environment("transfer-savepoint-memory", new org.mybatis.spring.transaction.SpringManagedTransactionFactory(), source));
+        var template = new org.mybatis.spring.SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(config));
+        var manager = new org.springframework.jdbc.datasource.DataSourceTransactionManager(source);
+        var advice = new org.springframework.transaction.interceptor.TransactionInterceptor();
+        advice.setTransactionManager(manager);
+        advice.setTransactionAttributeSource(new org.springframework.transaction.annotation.AnnotationTransactionAttributeSource());
+        var proxy = new org.springframework.aop.framework.ProxyFactory(bookService(template));
+        proxy.setProxyTargetClass(true);
+        proxy.addAdvice(advice);
+        var service = (BookServiceImpl) proxy.getProxy();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+        jdbc.execute("CREATE TABLE batch_outcome (status TEXT)");
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(manager);
+        transaction.execute(status -> {
+            Object point = status.createSavepoint();
+            BookDTO first = bookDTO();
+            first.setAliasNames(List.of("不应残留的别名"));
+            service.createBookInTransaction(first);
+            BookDTO second = bookDTO();
+            second.setRegionId(999L);
+            assertThrows(BusinessException.class, () -> service.createBookInTransaction(second));
+            status.rollbackToSavepoint(point);
+            status.releaseSavepoint(point);
+            template.clearCache();
+            jdbc.update("INSERT INTO batch_outcome (status) VALUES ('INVALID')");
+            return null;
+        });
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM alias", Long.class));
+        assertEquals("INVALID", jdbc.queryForObject("SELECT status FROM batch_outcome", String.class));
+    }
+
+    @Test
+    void completedImportCanBeRetriedWithoutRedisAndCannotBeReadByAnotherAccountOrType() throws Exception {
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var service = new DataTransferServiceImpl();
+        var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
+        var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        when(redis.opsForValue()).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("模拟缓存不可用"));
+        ReflectionTestUtils.setField(service, "json", json);
+        ReflectionTestUtils.setField(service, "jdbc", jdbc);
+        ReflectionTestUtils.setField(service, "redis", redis);
+        ReflectionTestUtils.setField(service, "transactionManager", new org.springframework.jdbc.datasource.DataSourceTransactionManager(
+                session.getConfiguration().getEnvironment().getDataSource()));
+        String token = "0ae613ad-d2e4-4c75-a319-25cff4a686ea";
+        var row = mock(java.sql.ResultSet.class);
+        when(row.getString(anyString())).thenAnswer(invocation -> switch ((String) invocation.getArgument(0)) {
+            case "import_token" -> token;
+            case "target_type" -> "BOOK";
+            case "status" -> "SUCCEEDED";
+            case "payload_hash" -> "test-only-hash";
+            case "result" -> "{\"status\":\"SUCCEEDED\",\"createdCount\":1,\"mappings\":{\"W1\":42}}";
+            default -> null;
+        });
+        when(row.getLong("account_id")).thenReturn(1L);
+        when(row.getLong("work_count")).thenReturn(1L);
+        when(row.getObject("expires_at", java.time.OffsetDateTime.class)).thenReturn(java.time.OffsetDateTime.now().minusHours(1));
+        when(jdbc.query(anyString(), org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Object>>any(), eq(token)))
+                .thenAnswer(invocation -> List.of(((org.springframework.jdbc.core.RowMapper<?>) invocation.getArgument(1)).mapRow(row, 0)));
+        var request = json.createObjectNode().put("targetType", "BOOK").put("importToken", token).put("acknowledged", true);
+        assertEquals(42, service.commit("BOOK", request, 1L).path("mappings").path("W1").asInt());
+        assertEquals(42, service.commit("BOOK", request, 1L).path("mappings").path("W1").asInt());
+        assertThrows(BusinessException.class, () -> service.commit("BOOK", request, 2L));
+        request.put("targetType", "ANIME");
+        assertThrows(BusinessException.class, () -> service.commit("ANIME", request, 1L));
+    }
+
+    @Test
+    void animeExternalLinkTitleIsRequiredBeforeCreatingOrUpdating() {
+        var service = animeRatingService();
+        var dto = animeRatingDTO("标题测试");
+        var link = new ExternalLinkDTO();
+        link.setUrl("https://example.com/anime");
+        dto.setExternalLinks(List.of(link));
+        for (String title : java.util.Arrays.asList(null, "", "  ")) {
+            link.setTitle(title);
+            assertEquals("动画外链标题不能为空", assertThrows(BusinessException.class, () -> service.createAnime(dto)).getMessage());
+            assertEquals(0L, session.getMapper(AnimeMapper.class).selectCount(null));
+            assertEquals(0L, session.getMapper(ExternalLinkMapper.class).selectCount(null));
+        }
+        link.setTitle("  官网  ");
+        Long id = service.createAnime(dto).getId();
+        assertEquals("官网", service.getAnimeById(id).getExternalLinks().getFirst().getTitle());
+        dto.setId(id); dto.setName("不应保存的新名称"); link.setTitle(" ");
+        assertThrows(BusinessException.class, () -> service.updateAnime(dto));
+        assertEquals("标题测试", service.getAnimeById(id).getName());
+        assertEquals("官网", service.getAnimeById(id).getExternalLinks().getFirst().getTitle());
+    }
+
+    @Test
+    void previewReportsCellErrorAndCacheOutageWithoutCreatingWorks() {
+        seedBookCatalogs();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var files = new TransferWorkbook(json);
+        var service = new DataTransferServiceImpl();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        when(redis.opsForValue()).thenThrow(new org.springframework.dao.DataAccessResourceFailureException("模拟缓存不可用"));
+        ReflectionTestUtils.setField(service, "json", json);
+        ReflectionTestUtils.setField(service, "workbook", files);
+        ReflectionTestUtils.setField(service, "bookService", bookService());
+        ReflectionTestUtils.setField(service, "bookMapper", session.getMapper(BookMapper.class));
+        ReflectionTestUtils.setField(service, "jdbc", jdbc);
+        ReflectionTestUtils.setField(service, "redis", redis);
+        try (var validation = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            ReflectionTestUtils.setField(service, "validator", validation.getValidator());
+            var row = json.createObjectNode().put("rowKey", "W1").put("name", "预览书籍")
+                    .put("bookTypeId", 1).put("adaptationTypeId", 1).put("regionId", 1).put("status", 0)
+                    .put("personalRatingScore", new java.math.BigDecimal("8.5"));
+            byte[] invalid = files.write("BOOK", "TEMPLATE", java.util.Map.of("works", List.of(row)));
+            var result = service.preview("BOOK", "BOOK", 1L,
+                    new org.springframework.mock.web.MockMultipartFile("file", "books.xlsx", null, invalid));
+            assertEquals(1, result.path("errorCount").asInt());
+            assertFalse(result.hasNonNull("importToken"));
+            var error = result.path("errors").get(0);
+            assertEquals("works", error.path("sheet").asText());
+            assertEquals(2, error.path("row").asInt());
+            assertEquals("personalRatingScore", error.path("field").asText());
+            row.put("personalRatingScore", new java.math.BigDecimal("8.0"));
+            byte[] valid = files.write("BOOK", "TEMPLATE", java.util.Map.of("works", List.of(row)));
+            assertEquals("导入预览缓存暂不可用，请稍后重试", assertThrows(BusinessException.class, () -> service.preview("BOOK", "BOOK", 1L,
+                    new org.springframework.mock.web.MockMultipartFile("file", "books.xlsx", null, valid))).getMessage());
+        }
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM series", Long.class));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM alias", Long.class));
+    }
+
     private List<Long> bookIds(org.killze.acgbox.vo.common.PageVO<org.killze.acgbox.vo.content.BookPageVO> page) {
         return page.getRows().stream().map(value -> value.getId()).toList();
     }

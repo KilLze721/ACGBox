@@ -16,6 +16,16 @@
     <name>acgbox-content</name>
 
     <dependencies>
+        <!-- 作品表格处理；Redis 复用应用已有的连接配置。 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>6.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
         <!-- 腾讯云官方 COS SDK，仅用于封面原始图片上传。 -->
         <dependency>
             <groupId>com.qcloud</groupId>
