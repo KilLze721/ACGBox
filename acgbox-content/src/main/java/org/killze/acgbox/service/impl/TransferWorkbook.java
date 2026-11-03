@@ -34,9 +34,33 @@ public class TransferWorkbook {
     public static final int RELATION_LIMIT = 10000;
     private static final long ENTRY_LIMIT = 20L * 1024 * 1024;
     private static final long ARCHIVE_LIMIT = 50L * 1024 * 1024;
+    private static final Set<String> DISPLAY_FIELDS = Set.of("adaptationTypeName", "regionName", "statusName", "broadcastTypeName", "bookTypeName", "seriesName");
+    private static final Set<String> HIDDEN_FIELDS = Set.of("adaptationTypeId", "regionId", "status", "broadcastTypeId", "bookTypeId", "seriesId");
     private static final Set<String> NUMBERS = Set.of("sourceId", "adaptationTypeId", "regionId", "status",
             "seriesId", "seriesSortOrder", "personalRatingScore", "broadcastTypeId", "episodeCount", "bookTypeId",
             "volumeCount", "chapterCount", "sortOrder", "companyId", "personId", "tagId");
+    /** 中文仅用于文件表头展示，内部字段、工作表名称和元数据键保持不变。 */
+    private static final Map<String, String> HEADER_LABELS = Map.ofEntries(
+            Map.entry("key", "配置项"), Map.entry("value", "配置值"),
+            Map.entry("rowKey", "文件内关联编号"), Map.entry("sourceId", "来源作品ID"),
+            Map.entry("name", "作品名称"), Map.entry("adaptationTypeId", "改编类型ID"),
+            Map.entry("regionId", "地区ID"), Map.entry("coverImageUrl", "封面图片地址"),
+            Map.entry("status", "状态"), Map.entry("description", "简介"),
+            Map.entry("seriesId", "系列ID"), Map.entry("seriesSortOrder", "系列内排序"),
+            Map.entry("personalRatingScore", "个人评分"), Map.entry("createdAt", "创建时间"),
+            Map.entry("updatedAt", "更新时间"), Map.entry("broadcastTypeId", "放送类型ID"),
+            Map.entry("episodeCount", "总集数"), Map.entry("airDate", "开播日期"),
+            Map.entry("bookTypeId", "书籍类型ID"), Map.entry("publishDate", "首次发表日期"),
+            Map.entry("volumeCount", "卷数"), Map.entry("chapterCount", "章节数"),
+            Map.entry("aliasName", "别名"), Map.entry("sortOrder", "排序值"),
+            Map.entry("companyId", "公司ID"), Map.entry("companyName", "公司名称"),
+            Map.entry("role", "职责"), Map.entry("personId", "人物ID"),
+            Map.entry("personName", "人物名称"), Map.entry("tagId", "标签ID"),
+            Map.entry("tagName", "标签名称"), Map.entry("title", "链接标题"),
+            Map.entry("url", "链接地址"), Map.entry("adaptationTypeName", "改编类型"),
+            Map.entry("regionName", "地区"), Map.entry("statusName", "状态名称"),
+            Map.entry("broadcastTypeName", "放送类型"), Map.entry("bookTypeName", "书籍类型"),
+            Map.entry("seriesName", "系列名称"));
     private final JsonMapper json;
 
     static {
@@ -74,6 +98,8 @@ public class TransferWorkbook {
                 "coverImageUrl", "status", "description", "seriesId", "seriesSortOrder", "personalRatingScore", "createdAt", "updatedAt"));
         works.addAll(type.equals("ANIME") ? List.of("broadcastTypeId", "episodeCount", "airDate")
                 : List.of("bookTypeId", "publishDate", "volumeCount", "chapterCount"));
+        works.addAll(List.of("adaptationTypeName", "regionName", "statusName", type.equals("ANIME") ? "broadcastTypeName" : "bookTypeName"));
+        works.add("seriesName");
         result.put("works", works);
         result.put("aliases", List.of("rowKey", "aliasName", "sortOrder"));
         result.put("companies", List.of("rowKey", "companyId", "companyName", "role", "sortOrder"));
@@ -91,19 +117,32 @@ public class TransferWorkbook {
             text.setWrapText(true);
             for (var entry : headers(type).entrySet()) {
                 Sheet sheet = workbook.createSheet(entry.getKey());
+                sheet.setDefaultColumnWidth(22);
+                sheet.setDefaultRowHeightInPoints(24);
                 Row head = sheet.createRow(0);
+                head.setHeightInPoints(28);
                 Drawing<?> drawing = sheet.createDrawingPatriarch();
                 for (int i = 0; i < entry.getValue().size(); i++) {
                     String field = entry.getValue().get(i);
                     Cell heading = head.createCell(i, CellType.STRING);
-                    heading.setCellValue(field);
+                    heading.setCellValue(HEADER_LABELS.get(field));
                     ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
                     anchor.setCol1(i); anchor.setCol2(i + 3); anchor.setRow1(0); anchor.setRow2(5);
                     Comment comment = drawing.createCellComment(anchor);
                     comment.setString(workbook.getCreationHelper().createRichTextString(explanation(field, type)));
                     heading.setCellComment(comment);
                     sheet.setDefaultColumnStyle(i, text);
-                    sheet.setColumnWidth(i, 22 * 256);
+                    int width = switch (field) {
+                        case "sourceId", "adaptationTypeId", "regionId", "seriesId", "broadcastTypeId",
+                                "bookTypeId", "companyId", "personId", "tagId", "sortOrder",
+                                "seriesSortOrder", "personalRatingScore" -> 16;
+                        case "name", "aliasName", "companyName", "personName", "tagName", "title",
+                                "adaptationTypeName", "regionName", "statusName", "broadcastTypeName", "bookTypeName", "seriesName" -> 32;
+                        case "description", "url", "coverImageUrl" -> 60;
+                        default -> 22;
+                    };
+                    sheet.setColumnWidth(i, width * 256);
+                    if (entry.getKey().equals("works") && HIDDEN_FIELDS.contains(field)) sheet.setColumnHidden(i, true);
                 }
                 sheet.createFreezePane(0, 1);
                 List<ObjectNode> rows = new ArrayList<>();
@@ -113,17 +152,22 @@ public class TransferWorkbook {
                     meta.put("targetType", type);
                     meta.put("fileKind", kind);
                     meta.put("exportedAt", OffsetDateTime.now(ZoneId.of("Asia/Shanghai")).toString());
-                    meta.put("notice", "仅批量新增；sourceId 不用于更新；资料 ID 仅对来源数据库有效，请人工核对");
+                    meta.put("notice", "仅批量新增；sourceId 不用于更新；资料 ID 仅对来源数据库有效；名称列仅展示，导入以隐藏 ID 和状态代码为准，需修改时请取消隐藏");
                     meta.forEach((key, value) -> rows.add(json.createObjectNode().put("key", key).put("value", value)));
                 } else {
                     rows.addAll(tables.getOrDefault(entry.getKey(), List.of()));
                 }
                 for (int n = 0; n < rows.size(); n++) {
                     Row row = sheet.createRow(n + 1);
+                    // 逐行保存固定高度，避免表格软件按换行内容自动撑高。
+                    row.setHeightInPoints(24);
                     ObjectNode data = rows.get(n);
                     for (int i = 0; i < entry.getValue().size(); i++) {
                         String field = entry.getValue().get(i);
                         JsonNode value = data.get(field);
+                        if (entry.getKey().equals("works") && field.equals("statusName") && data.hasNonNull("status")) {
+                            value = json.valueToTree(statusName(type, data.path("status").asInt()));
+                        }
                         if (value == null || value.isNull()) continue;
                         String string = value.asText();
                         if (string.length() > 32767) {
@@ -194,17 +238,30 @@ public class TransferWorkbook {
             Sheet sheet = book.getSheet(table.getKey());
             if (sheet == null) throw new BusinessException("缺少工作表：" + table.getKey());
             Row header = sheet.getRow(0);
-            if (header == null || header.getLastCellNum() != table.getValue().size()) {
+            if (header == null || header.getLastCellNum() > table.getValue().size()) {
                 throw new BusinessException(table.getKey() + " 表头不符合模板");
             }
             List<String> columns = new ArrayList<>();
+            // 先归一化再检查，防止中文、英文两列实际指向同一个字段。
+            Map<String, String> accepted = new HashMap<>();
+            for (String field : table.getValue()) {
+                accepted.put(field, field);
+                accepted.put(HEADER_LABELS.get(field), field);
+            }
             for (int c = 0; c < header.getLastCellNum(); c++) {
                 Cell cell = header.getCell(c);
-                if (cell == null || cell.getCellType() != CellType.STRING) throw new BusinessException("表头必须为固定字段名");
-                columns.add(cell.getStringCellValue());
+                if (cell == null || cell.getCellType() != CellType.STRING) throw new BusinessException("表头必须为规定的中文标题或原英文字段名");
+                String field = accepted.get(cell.getStringCellValue());
+                if (field == null) throw new BusinessException(table.getKey() + " 包含未知表头，请使用模板规定的中文标题或原英文字段名");
+                columns.add(field);
             }
-            if (new HashSet<>(columns).size() != columns.size() || !new HashSet<>(columns).equals(new HashSet<>(table.getValue()))) {
+            Set<String> required = new HashSet<>(table.getValue());
+            required.removeAll(DISPLAY_FIELDS);
+            if (new HashSet<>(columns).size() != columns.size() || !columns.containsAll(required)) {
                 throw new BusinessException(table.getKey() + " 包含重复、未知或缺失表头");
+            }
+            if (table.getKey().equals("works") && columns.stream().anyMatch(DISPLAY_FIELDS::contains)) {
+                problems.warning(new Issue("works", 1L, "", "", "名称和状态文字列仅供展示，导入以 ID 和状态代码为准，修改文字不会改变关联"));
             }
             List<ObjectNode> rows = new ArrayList<>();
             int physical = 0;
@@ -262,6 +319,7 @@ public class TransferWorkbook {
             }
             ObjectNode data = work.deepCopy();
             data.remove(List.of("_row", "rowKey", "sourceId", "createdAt", "updatedAt"));
+            data.remove(DISPLAY_FIELDS);
             data.put("autoCreateSeries", false);
             data.putArray("aliasNames"); data.putArray("companies"); data.putArray("persons"); data.putArray("tagIds"); data.putArray("externalLinks");
             Map<String, Issue> locations = new LinkedHashMap<>();
@@ -307,7 +365,23 @@ public class TransferWorkbook {
 
     private List<String> columnsForWork(String type) { return headers(type).get("works"); }
 
+    private String statusName(String type, int status) {
+        if (type.equals("ANIME")) return switch (status) {
+            case 1 -> "未放送"; case 2 -> "放送中"; case 3 -> "已完结"; case 4 -> "其他";
+            default -> "未知状态（" + status + "）";
+        };
+        return switch (status) {
+            case 0 -> "其他"; case 1 -> "未发表"; case 2 -> "连载中"; case 3 -> "已完结";
+            case 4 -> "暂停中"; case 5 -> "已终止"; default -> "未知状态（" + status + "）";
+        };
+    }
+
     private String explanation(String field, String type) {
+        if (DISPLAY_FIELDS.contains(field)) return "仅供展示，修改此列不会改变关联或状态；导入以隐藏的 ID／状态代码为准，请取消隐藏后修改对应列";
+        if (field.equals("seriesId")) return "此列默认隐藏；可选的已有系列 ID，空白不加入系列，不自动创建系列";
+        if (HIDDEN_FIELDS.contains(field)) return (field.equals("status")
+                ? (type.equals("ANIME") ? "必填：1 未放送、2 放送中、3 已完结、4 其他" : "必填：0 其他、1 未发表、2 连载中、3 已完结、4 暂停中、5 已终止")
+                : "必须引用当前数据库已有资料 ID") + "；此列默认隐藏，导入以此列为准，可取消隐藏后修改";
         return switch (field) {
             case "rowKey" -> "文件内唯一字符串，必填，最多 100 字符；关联表按此字段定位作品，不是数据库 ID";
             case "sourceId", "createdAt", "updatedAt" -> "只读追溯信息，导入时忽略，不指定新 ID，也不更新原作品";
@@ -316,7 +390,6 @@ public class TransferWorkbook {
             case "status" -> type.equals("ANIME") ? "必填：1 未放送、2 放送中、3 已完结、4 其他" : "必填：0 其他、1 未发表、2 连载中、3 已完结、4 暂停中、5 已终止";
             case "name" -> "作品名称必填；动画按原名称判重，书籍允许同名";
             case "companyName", "personName", "tagName" -> "可选辅助名称，只作核对，不参与 ID 匹配，不会创建资料";
-            case "seriesId" -> "可选的已有系列 ID；空白不加入系列，不自动创建系列";
             case "url", "coverImageUrl" -> "地址文本，不下载或探测远程资源，不嵌入图片";
             case "description" -> "可空，保留原文换行；最多 32767 个 Excel 文本字符，不截断";
             case "role" -> "人物职责必填，同人不同职责允许；公司职责可空，长度沿用现有规则";

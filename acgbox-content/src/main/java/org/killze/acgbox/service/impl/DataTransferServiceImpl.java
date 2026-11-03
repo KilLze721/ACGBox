@@ -128,6 +128,13 @@ public class DataTransferServiceImpl implements DataTransferService {
             for (String field : workbook.headers(type).get("works")) {
                 if (data.has(field)) basic.set(field, data.get(field));
             }
+            basic.put("adaptationTypeName", referenceName("adaptation_type", data.path("adaptationTypeId").asLong()));
+            basic.put("regionName", referenceName("region", data.path("regionId").asLong()));
+            if (data.hasNonNull("seriesId")) {
+                basic.put("seriesName", referenceName("series", data.path("seriesId").asLong()));
+            }
+            String typeField = type.equals("ANIME") ? "broadcastType" : "bookType";
+            basic.put(typeField + "Name", referenceName(type.equals("ANIME") ? "broadcast_type" : "book_type", data.path(typeField + "Id").asLong()));
             Map<String, Object> times = jdbc.queryForMap("SELECT created_at, updated_at FROM " + table + " WHERE id=?", id);
             times.forEach((field, value) -> { if (value != null) basic.put(field.equals("created_at") ? "createdAt" : "updatedAt", value.toString()); });
             tables.get("works").add(basic);

@@ -58,6 +58,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -689,6 +690,176 @@ class SortOrderValidationTests {
         assertThrows(BusinessException.class, () -> files.read("ANIME", new MockMultipartFile("file", "books.xlsx", null, bytes)));
         try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(bytes))) {
             assertEquals(org.apache.poi.ss.usermodel.CellType.STRING, book.getSheet("works").getRow(2).getCell(2).getCellType());
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ANIME,EXPORT", "ANIME,TEMPLATE", "BOOK,EXPORT", "BOOK,TEMPLATE"})
+    void transferDownloadsUseChineseHeadersAndKeepTheirData(String type, String kind) throws Exception {
+        JsonMapper json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        var work = json.createObjectNode().put("rowKey", "W1").put("name", "中文表头作品")
+                .put("status", type.equals("ANIME") ? 1 : 0).put("personalRatingScore", 0)
+                .put("description", "简介第一行\n简介第二行\n简介第三行")
+                .put("adaptationTypeId", 2).put("regionId", 1).put(type.equals("ANIME") ? "broadcastTypeId" : "bookTypeId", 1)
+                .put("adaptationTypeName", "漫画改编").put("regionName", "日本")
+                .put(type.equals("ANIME") ? "broadcastTypeName" : "bookTypeName", type.equals("ANIME") ? "TV" : "漫画");
+        byte[] bytes = files.write(type, kind, kind.equals("TEMPLATE") ? java.util.Map.of()
+                : java.util.Map.of("works", java.util.List.of(work)));
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(bytes))) {
+            for (var sheet : book) {
+                assertEquals(22, sheet.getDefaultColumnWidth());
+                assertEquals(24f, sheet.getDefaultRowHeightInPoints());
+                assertEquals(28f, sheet.getRow(0).getHeightInPoints());
+                for (var row : sheet) {
+                    if (row.getRowNum() > 0) assertEquals(24f, row.getHeightInPoints());
+                }
+                for (var cell : sheet.getRow(0)) assertTrue(cell.getStringCellValue().matches(".*[一-龥].*"));
+            }
+            assertEquals(22 * 256, book.getSheet("works").getColumnWidth(0));
+            assertEquals(16 * 256, book.getSheet("works").getColumnWidth(1));
+            assertEquals(32 * 256, book.getSheet("works").getColumnWidth(2));
+            assertEquals(60 * 256, book.getSheet("works").getColumnWidth(5));
+            assertEquals(60 * 256, book.getSheet("works").getColumnWidth(7));
+            assertEquals(16 * 256, book.getSheet("works").getColumnWidth(10));
+            assertEquals(16 * 256, book.getSheet("companies").getColumnWidth(1));
+            assertEquals(32 * 256, book.getSheet("companies").getColumnWidth(2));
+            assertEquals(22 * 256, book.getSheet("companies").getColumnWidth(3));
+            assertEquals(32 * 256, book.getSheet("external_links").getColumnWidth(1));
+            assertEquals(60 * 256, book.getSheet("external_links").getColumnWidth(2));
+            assertEquals("配置项", book.getSheet("meta").getRow(0).getCell(0).getStringCellValue());
+            assertEquals("文件内关联编号", book.getSheet("works").getRow(0).getCell(0).getStringCellValue());
+            assertEquals("作品名称", book.getSheet("works").getRow(0).getCell(2).getStringCellValue());
+            assertEquals("个人评分", book.getSheet("works").getRow(0).getCell(10).getStringCellValue());
+            assertEquals("公司ID", book.getSheet("companies").getRow(0).getCell(1).getStringCellValue());
+            assertEquals("链接标题", book.getSheet("external_links").getRow(0).getCell(1).getStringCellValue());
+            assertEquals("schemaVersion", book.getSheet("meta").getRow(1).getCell(0).getStringCellValue());
+            var works = book.getSheet("works");
+            int displayStart = type.equals("ANIME") ? 16 : 17;
+            for (int column : new int[]{3, 4, 6, 13}) assertTrue(works.isColumnHidden(column));
+            for (int column = displayStart; column < displayStart + 5; column++) assertFalse(works.isColumnHidden(column));
+            assertTrue(works.isColumnHidden(8));
+            assertFalse(works.isColumnHidden(9));
+            assertEquals("系列名称", works.getRow(0).getCell(displayStart + 4).getStringCellValue());
+            assertEquals("改编类型", works.getRow(0).getCell(displayStart).getStringCellValue());
+            assertEquals("地区", works.getRow(0).getCell(displayStart + 1).getStringCellValue());
+            if (kind.equals("EXPORT")) {
+                assertEquals("漫画改编", works.getRow(1).getCell(displayStart).getStringCellValue());
+                assertEquals("日本", works.getRow(1).getCell(displayStart + 1).getStringCellValue());
+                assertEquals(type.equals("ANIME") ? "未放送" : "其他", works.getRow(1).getCell(displayStart + 2).getStringCellValue());
+            }
+        }
+        // 默认高度读回同样是 24，须检查文件确实逐行保存了固定高度供 Excel／WPS 使用。
+        var factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+        factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_DTD, "");
+        factory.setAttribute(javax.xml.XMLConstants.ACCESS_EXTERNAL_SCHEMA, "");
+        try (var zip = new java.util.zip.ZipInputStream(new ByteArrayInputStream(bytes))) {
+            for (var entry = zip.getNextEntry(); entry != null; entry = zip.getNextEntry()) {
+                if (!entry.getName().matches("xl/worksheets/sheet[0-9]+[.]xml")) continue;
+                var document = factory.newDocumentBuilder().parse(new ByteArrayInputStream(zip.readAllBytes()));
+                var rows = document.getElementsByTagName("row");
+                for (int i = 0; i < rows.getLength(); i++) {
+                    var row = (org.w3c.dom.Element) rows.item(i);
+                    if (row.getAttribute("r").equals("1")) continue;
+                    assertEquals("true", row.getAttribute("customHeight"));
+                    assertEquals(24f, Float.parseFloat(row.getAttribute("ht")));
+                }
+            }
+        }
+        var parsed = files.read(type, new MockMultipartFile("file", "works.xlsx", null, bytes));
+        if (kind.equals("TEMPLATE")) assertTrue(parsed.rows().isEmpty());
+        else {
+            assertEquals(0, parsed.problems().errorCount);
+            assertEquals("中文表头作品", parsed.rows().getFirst().data().path("name").asText());
+            assertEquals(0, parsed.rows().getFirst().data().path("personalRatingScore").asInt());
+            assertEquals(2, parsed.rows().getFirst().data().path("adaptationTypeId").asInt());
+            assertEquals(1, parsed.rows().getFirst().data().path("regionId").asInt());
+            assertFalse(parsed.rows().getFirst().data().has("regionName"));
+        }
+    }
+
+    @Test
+    void transferImportsKeepEnglishAndMixedHeadersCompatibleAfterColumnReordering() throws Exception {
+        JsonMapper json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        for (String type : java.util.List.of("ANIME", "BOOK")) {
+            for (boolean mixed : java.util.List.of(false, true)) {
+                var work = json.createObjectNode().put("rowKey", "W1").put("name", "旧格式作品");
+                byte[] original = files.write(type, "EXPORT", java.util.Map.of("works", java.util.List.of(work)));
+                byte[] bytes;
+                try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(original));
+                     var output = new ByteArrayOutputStream()) {
+                    // 重建旧文件的英文表头，验证升级后仍可读取原文件。
+                    files.headers(type).forEach((sheet, fields) -> {
+                        for (int i = 0; i < fields.size(); i++) book.getSheet(sheet).getRow(0).getCell(i).setCellValue(fields.get(i));
+                    });
+                    var sheet = book.getSheet("works");
+                    var header = sheet.getRow(0);
+                    for (int i = header.getLastCellNum() - 1, end = i - 5; i > end; i--) header.removeCell(header.getCell(i));
+                    sheet.getRow(0).getCell(0).setCellValue(mixed ? "作品名称" : "name");
+                    sheet.getRow(0).getCell(2).setCellValue("rowKey");
+                    sheet.getRow(1).getCell(0).setCellValue("旧格式作品");
+                    sheet.getRow(1).getCell(2).setCellValue("W1");
+                    book.write(output); bytes = output.toByteArray();
+                }
+                var parsed = files.read(type, new MockMultipartFile("file", "legacy.xlsx", null, bytes));
+                assertEquals(0, parsed.problems().errorCount);
+                assertEquals("W1", parsed.rows().getFirst().rowKey());
+                assertEquals("旧格式作品", parsed.rows().getFirst().data().path("name").asText());
+            }
+        }
+    }
+
+    @Test
+    void transferImportsRejectDuplicateMappedUnknownAndMissingHeaders() throws Exception {
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(JsonMapper.builder().build());
+        for (String type : java.util.List.of("ANIME", "BOOK")) {
+            for (String invalid : java.util.List.of("name", "自定义列", "缺列")) {
+                byte[] template = files.write(type, "TEMPLATE", java.util.Map.of());
+                byte[] bytes;
+                try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(template));
+                     var output = new ByteArrayOutputStream()) {
+                    var header = book.getSheet("works").getRow(0);
+                    if (invalid.equals("缺列")) header.removeCell(header.getCell(3));
+                    else header.getCell(3).setCellValue(invalid);
+                    book.write(output); bytes = output.toByteArray();
+                }
+                var error = assertThrows(BusinessException.class,
+                        () -> files.read(type, new MockMultipartFile("file", "invalid.xlsx", null, bytes)));
+                assertTrue(error.getMessage().contains("表头"));
+            }
+        }
+    }
+
+    @Test
+    void transferDisplayTextDoesNotOverrideHiddenIdsOrStatus() throws Exception {
+        var json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        for (String type : java.util.List.of("ANIME", "BOOK")) {
+            var work = json.createObjectNode().put("rowKey", "W1").put("name", "只改显示文字").put("seriesId", 7)
+                    .put("adaptationTypeId", 2).put("regionId", 1).put("status", 3);
+            byte[] original = files.write(type, "EXPORT", java.util.Map.of("works", java.util.List.of(work)));
+            byte[] bytes;
+            try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(original));
+                 var out = new ByteArrayOutputStream()) {
+                var row = book.getSheet("works").getRow(1);
+                int start = type.equals("ANIME") ? 16 : 17;
+                row.createCell(start).setCellValue("随意填写的改编类型");
+                row.createCell(start + 1).setCellValue("不存在的地区");
+                row.getCell(start + 2).setCellValue("未放送");
+                row.createCell(start + 4).setCellValue("随意填写的系列");
+                book.write(out); bytes = out.toByteArray();
+            }
+            var parsed = files.read(type, new MockMultipartFile("file", "works.xlsx", null, bytes));
+            var data = parsed.rows().getFirst().data();
+            assertEquals(0, parsed.problems().errorCount);
+            assertEquals(2, data.path("adaptationTypeId").asInt());
+            assertEquals(1, data.path("regionId").asInt());
+            assertEquals(3, data.path("status").asInt());
+            assertFalse(data.has("statusName"));
+            assertEquals(7, data.path("seriesId").asInt());
+            assertFalse(data.has("seriesName"));
+            assertTrue(parsed.problems().warnings.stream().anyMatch(issue -> issue.message().contains("以 ID 和状态代码为准")));
         }
     }
 

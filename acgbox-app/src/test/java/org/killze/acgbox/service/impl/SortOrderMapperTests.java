@@ -769,6 +769,59 @@ class SortOrderMapperTests {
     }
 
     @Test
+    void exportedWorksShowCatalogNamesAndKeepHiddenIds() throws Exception {
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        for (String type : List.of("ANIME", "BOOK")) {
+            var files = new TransferWorkbook(json);
+            var service = new DataTransferServiceImpl();
+            var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
+            when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
+                    .thenAnswer(invocation -> ((String) invocation.getArgument(0)).contains("count(*)") ? 1L : 0L);
+            when(jdbc.queryForMap(anyString(), any(Object[].class))).thenReturn(java.util.Map.of());
+            when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class))).thenAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
+                return List.of(sql.contains("series") ? "测试系列" : sql.contains("adaptation_type") ? "漫画改编" : sql.contains("region") ? "日本"
+                        : sql.contains("broadcast_type") ? "TV" : "漫画");
+            });
+            var manager = mock(org.springframework.transaction.PlatformTransactionManager.class);
+            when(manager.getTransaction(any())).thenReturn(new org.springframework.transaction.support.SimpleTransactionStatus());
+            var anime = mock(AnimeServiceImpl.class);
+            when(anime.getAnimeById(1L)).thenReturn(org.killze.acgbox.vo.content.AnimeVO.builder()
+                    .id(1L).name("导出动画").adaptationTypeId(2L).regionId(1L).broadcastTypeId(1L).status(3L).seriesId(7L).build());
+            var book = mock(BookServiceImpl.class);
+            when(book.getBookById(1L)).thenReturn(org.killze.acgbox.vo.content.BookVO.builder()
+                    .id(1L).name("导出书籍").adaptationTypeId(2L).regionId(1L).bookTypeId(1L).status(0L).build());
+            ReflectionTestUtils.setField(service, "json", json);
+            ReflectionTestUtils.setField(service, "workbook", files);
+            ReflectionTestUtils.setField(service, "jdbc", jdbc);
+            ReflectionTestUtils.setField(service, "transactionManager", manager);
+            ReflectionTestUtils.setField(service, "animeService", anime);
+            ReflectionTestUtils.setField(service, "bookService", book);
+            var request = json.createObjectNode().put("targetType", type).put("scope", "SELECTED");
+            request.putArray("ids").add(1L);
+            var download = service.export(type, request);
+            try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(download.bytes()))) {
+                var sheet = workbook.getSheet("works");
+                var row = sheet.getRow(1);
+                int start = type.equals("ANIME") ? 16 : 17;
+                assertEquals("漫画改编", row.getCell(start).getStringCellValue());
+                assertEquals("日本", row.getCell(start + 1).getStringCellValue());
+                assertEquals(type.equals("ANIME") ? "已完结" : "其他", row.getCell(start + 2).getStringCellValue());
+                assertEquals(type.equals("ANIME") ? "TV" : "漫画", row.getCell(start + 3).getStringCellValue());
+                assertTrue(sheet.isColumnHidden(3));
+                assertEquals("2", row.getCell(3).getStringCellValue());
+                assertTrue(sheet.isColumnHidden(8));
+                if (type.equals("ANIME")) {
+                    assertEquals("7", row.getCell(8).getStringCellValue());
+                    assertEquals("测试系列", row.getCell(start + 4).getStringCellValue());
+                } else {
+                    assertEquals(null, row.getCell(start + 4));
+                }
+            }
+        }
+    }
+
+    @Test
     void completedImportCanBeRetriedWithoutRedisAndCannotBeReadByAnotherAccountOrType() throws Exception {
         var json = tools.jackson.databind.json.JsonMapper.builder().build();
         var service = new DataTransferServiceImpl();
