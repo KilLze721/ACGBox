@@ -95,11 +95,6 @@ public class AnimeVO {
     private Long seriesId;
 
     /**
-     * 动画在系列内的排序值
-     */
-    private Long seriesSortOrder;
-
-    /**
      * 个人评分
      */
     private BigDecimal personalRatingScore;

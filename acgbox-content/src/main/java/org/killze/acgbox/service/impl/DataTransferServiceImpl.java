@@ -37,6 +37,11 @@ import static org.killze.acgbox.service.impl.TransferWorkbook.*;
 @Slf4j
 public class DataTransferServiceImpl implements DataTransferService {
     private static final String CACHE_PREFIX = "acgbox:data-transfer:preview:";
+    private static final Map<String, Integer> CREATABLE_CATALOGS = Map.of("company", 100, "person", 100, "series", 200, "tag", 50);
+    @Autowired private org.killze.acgbox.service.CompanyService companyService;
+    @Autowired private org.killze.acgbox.service.PersonService personService;
+    @Autowired private org.killze.acgbox.service.SeriesService seriesService;
+    @Autowired private org.killze.acgbox.service.TagService tagService;
     @Autowired private JsonMapper json;
     @Autowired private TransferWorkbook workbook;
     @Autowired private AnimeServiceImpl animeService;
@@ -58,13 +63,13 @@ public class DataTransferServiceImpl implements DataTransferService {
 
     public Download template(String type, String requested) {
         requireType(type, requested);
-        return download(type, workbook.write(type, "TEMPLATE", Map.of()));
+        return download(type, workbook.writeNamed(type, "TEMPLATE", Map.of()));
     }
 
     public Download export(String type, JsonNode request) {
         requireType(type, request.path("targetType").asText());
         var tables = readTransaction(() -> exportSnapshot(type, request));
-        return download(type, workbook.write(type, "EXPORT", tables));
+        return download(type, workbook.writeNamed(type, "EXPORT", tables));
     }
 
     private Download download(String type, byte[] bytes) {
@@ -135,8 +140,6 @@ public class DataTransferServiceImpl implements DataTransferService {
             }
             String typeField = type.equals("ANIME") ? "broadcastType" : "bookType";
             basic.put(typeField + "Name", referenceName(type.equals("ANIME") ? "broadcast_type" : "book_type", data.path(typeField + "Id").asLong()));
-            Map<String, Object> times = jdbc.queryForMap("SELECT created_at, updated_at FROM " + table + " WHERE id=?", id);
-            times.forEach((field, value) -> { if (value != null) basic.put(field.equals("created_at") ? "createdAt" : "updatedAt", value.toString()); });
             tables.get("works").add(basic);
             for (String property : List.of("aliasNames", "companies", "persons", "tagIds", "externalLinks")) {
                 String sheet = switch (property) { case "aliasNames" -> "aliases"; case "tagIds" -> "tags"; case "externalLinks" -> "external_links"; default -> property; };
@@ -148,6 +151,7 @@ public class DataTransferServiceImpl implements DataTransferService {
                     else row = ((ObjectNode) value).deepCopy();
                     row.put("rowKey", key);
                     if (property.equals("companies")) row.put("companyName", referenceName("company", row.path("companyId").asLong()));
+                    if (property.equals("persons")) row.put("personName", referenceName("person", row.path("personId").asLong()));
                     if (property.equals("tagIds")) row.put("tagName", referenceName("tag", value.asLong()));
                     tables.get(sheet).add(row);
                     index++;
@@ -184,31 +188,56 @@ public class DataTransferServiceImpl implements DataTransferService {
 
     public ObjectNode preview(String type, String requested, long owner, MultipartFile file) {
         requireType(type, requested);
-        Parsed parsed = workbook.read(type, file);
+        Map<String, Map<String, List<Long>>> matches = new HashMap<>();
+        Map<Long, PendingCatalog> pending = new LinkedHashMap<>();
+        Parsed parsed = workbook.read(type, file, (table, name) -> matches.computeIfAbsent(table, key -> new HashMap<>())
+                .computeIfAbsent(name, key -> {
+                    var ids = lookupCatalog(table, key);
+                    Integer limit = CREATABLE_CATALOGS.get(table);
+                    if (!ids.isEmpty() || limit == null) return ids;
+                    if (key.codePointCount(0, key.length()) > limit) throw new BusinessException("待创建资料名称不能超过 " + limit + " 字符");
+                    if (table.equals("person") && !key.equals(key.trim())) throw new BusinessException("新人物姓名不能有首尾空格");
+                    long temporary = -1L - pending.size();
+                    pending.put(temporary, new PendingCatalog(table, key));
+                    return List.of(temporary);
+                }));
         Problems problems = parsed.problems();
-        if (parsed.fileKind().equals("EXPORT")) problems.warning(new Issue("meta", 1L, "fileKind", "", "这是导出文件，确认后新增作品，不更新 sourceId 对应作品；跨库资料 ID 须人工核对"));
+        if (parsed.fileKind().equals("EXPORT")) problems.warning(new Issue("meta", 1L, "fileKind", "", "这是导出文件，确认后新增作品，不覆盖原作品；请核对关联资料"));
         Set<String> names = new HashSet<>();
         List<ImportRow> rows = new ArrayList<>();
         Map<String, Map<Long, String>> previewNames = previewNames(type, parsed.rows());
+        pending.forEach((id, catalog) -> previewNames.computeIfAbsent(catalog.table(), key -> new LinkedHashMap<>()).put(id, catalog.name()));
+        Map<Long, Set<String>> affected = new LinkedHashMap<>();
         long relations = 0;
         for (ImportRow row : parsed.rows()) {
+            Map<Long, PendingCatalog> rowPending = new LinkedHashMap<>();
+            ObjectNode existing = replacePending(row.data(), id -> {
+                PendingCatalog catalog = pending.get(id);
+                if (catalog == null) return id;
+                rowPending.put(id, catalog);
+                affected.computeIfAbsent(id, key -> new LinkedHashSet<>()).add(row.rowKey());
+                return null;
+            });
             try {
-                Object candidate = type.equals("ANIME") ? json.treeToValue(row.data(), AnimeDTO.class) : json.treeToValue(row.data(), BookDTO.class);
+                // 临时编号只用于校验请求结构，不写入业务表。
+                ObjectNode validationData = rowPending.isEmpty() ? row.data() : replacePending(row.data(), id -> rowPending.containsKey(id) ? 1L : id);
+                Object candidate = type.equals("ANIME") ? json.treeToValue(validationData, AnimeDTO.class) : json.treeToValue(validationData, BookDTO.class);
                 var violations = validator.validate(candidate);
                 if (!violations.isEmpty()) {
                     violations.stream().sorted(Comparator.comparing(v -> v.getPropertyPath().toString()))
                             .forEach(v -> problems.error(issue(row, v.getPropertyPath().toString(), v.getMessage())));
                     continue;
                 }
-                verifyReferences(type, row, previewNames);
+                verifyReferences(type, new ImportRow(row.rowKey(), row.row(), existing, row.locations()), previewNames);
                 checkDisplayNames(row, problems, previewNames);
-                ObjectNode normalized = prepare(type, row.data());
+                ObjectNode prepared = prepare(type, existing);
+                ObjectNode normalized = rowPending.isEmpty() ? prepared : row.data();
                 for (String field : List.of("name", "description", "coverImageUrl")) {
                     if (row.data().hasNonNull(field) && !row.data().path(field).asText().equals(normalized.path(field).asText())) {
                         problems.warning(issue(row, field, field + " 已按现有新增规则清洗，请核对实际保存值"));
                     }
                 }
-                String name = normalized.path("name").asText();
+                String name = prepared.path("name").asText();
                 if (!names.add(name)) {
                     if (type.equals("ANIME")) problems.error(issue(row, "name", "文件内动画名称重复"));
                     else problems.warning(issue(row, "name", "文件内存在同名书籍，将分别新增"));
@@ -218,7 +247,7 @@ public class DataTransferServiceImpl implements DataTransferService {
                     relations += normalized.path(field).size();
                     if (!normalized.path(field).equals(row.data().path(field))) problems.warning(issue(row, field, field + " 已按现有新增规则清洗、去重或填充默认值，请核对预览"));
                 }
-                rows.add(new ImportRow(row.rowKey(), row.row(), normalized, row.locations()));
+                rows.add(new ImportRow(row.rowKey(), row.row(), normalized, row.locations(), rowPending));
             } catch (FieldProblem e) { problems.error(issue(row, e.field, e.getMessage())); }
             catch (BusinessException e) { problems.error(issue(row, "", e.getMessage())); }
         }
@@ -229,6 +258,12 @@ public class DataTransferServiceImpl implements DataTransferService {
         Map<String, ObjectNode> normalizedRows = new HashMap<>();
         rows.forEach(row -> normalizedRows.put(row.rowKey(), row.data()));
         var responseRows = response.putArray("rows");
+        var pendingRows = response.putArray("pendingCatalogs");
+        affected.forEach((id, keys) -> {
+            var catalog = pending.get(id);
+            pendingRows.addObject().put("temporaryId", id).put("type", catalog.table()).put("name", catalog.name())
+                    .set("rowKeys", json.valueToTree(keys));
+        });
         response.set("referenceNames", json.valueToTree(previewNames));
         for (ImportRow row : parsed.rows()) {
             var view = responseRows.addObject().put("rowKey", row.rowKey()).put("row", row.row());
@@ -327,6 +362,49 @@ public class DataTransferServiceImpl implements DataTransferService {
         return names.isEmpty() ? "" : names.getFirst();
     }
 
+    private List<Long> lookupCatalog(String table, String name) {
+        return jdbc.queryForList("SELECT id FROM " + table + " WHERE name COLLATE \"C\" = ? LIMIT 2", Long.class, name);
+    }
+
+    private ObjectNode replacePending(ObjectNode original, java.util.function.LongFunction<Long> replacement) {
+        ObjectNode data = original.deepCopy();
+        if (data.hasNonNull("seriesId")) {
+            Long id = replacement.apply(data.path("seriesId").asLong());
+            if (id == null) data.remove("seriesId");
+            else if (id != data.path("seriesId").asLong()) data.put("seriesId", id);
+        }
+        for (String property : List.of("companies", "persons", "tagIds")) {
+            if (!data.path(property).isArray()) continue;
+            var entries = data.withArray(property);
+            String field = property.equals("companies") ? "companyId" : "personId";
+            for (int i = entries.size() - 1; i >= 0; i--) {
+                JsonNode entry = entries.get(i);
+                JsonNode value = property.equals("tagIds") ? entry : entry.path(field);
+                if (value.asLong() >= 0) continue;
+                Long id = replacement.apply(value.asLong());
+                if (id == null) entries.remove(i);
+                else if (id != value.asLong()) {
+                    if (property.equals("tagIds")) entries.set(i, json.valueToTree(id));
+                    else ((ObjectNode) entry).put(field, id);
+                }
+            }
+        }
+        return data;
+    }
+
+    private long createCatalog(PendingCatalog catalog) {
+        var ids = lookupCatalog(catalog.table(), catalog.name());
+        if (ids.size() > 1) throw new BusinessException("资料存在多条同名记录：" + catalog.name());
+        if (!ids.isEmpty()) return ids.getFirst();
+        return switch (catalog.table()) {
+            case "company" -> { var dto = new CompanyDTO(); dto.setName(catalog.name()); yield companyService.createCompany(dto).getId(); }
+            case "person" -> { var dto = new PersonDTO(); dto.setName(catalog.name()); yield personService.createPerson(dto).getId(); }
+            case "series" -> { var dto = new SeriesDTO(); dto.setName(catalog.name()); yield seriesService.createSeries(dto).getId(); }
+            case "tag" -> { var dto = new TagDTO(); dto.setName(catalog.name()); yield tagService.createTag(dto).getId(); }
+            default -> throw new BusinessException("不支持创建此类资料");
+        };
+    }
+
     /** 辅助名称仅作核对提醒，始终按 ID 引用，绝不按名称自动映射。 */
     private void checkDisplayNames(ImportRow row, Problems problems, Map<String, Map<Long, String>> previewNames) {
         for (String property : List.of("companies", "persons", "tagIds")) {
@@ -401,18 +479,35 @@ public class DataTransferServiceImpl implements DataTransferService {
                         || payload.getBytes(StandardCharsets.UTF_8).length > FILE_LIMIT) throw new IllegalArgumentException();
                 rows = json.readValue(payload, json.getTypeFactory().constructCollectionType(List.class, ImportRow.class));
                 if (rows.size() != batch.workCount() || rows.isEmpty() || rows.size() > 500) throw new IllegalArgumentException();
+                // 校验原摘要后，再忽略旧预览中已退役的系列内排序。
+                rows.forEach(row -> row.data().remove("seriesSortOrder"));
             } catch (RuntimeException e) { return terminal(batch, "INVALID", "预览绑定或摘要校验失败，请重新上传", null); }
+            Map<Long, PendingCatalog> pending = new LinkedHashMap<>();
+            rows.forEach(row -> pending.putAll(row.pendingCatalogs()));
+            if (!pending.isEmpty() && (!request.path("createMissingCatalogs").isBoolean()
+                    || !request.path("createMissingCatalogs").asBoolean())) {
+                throw new BusinessException("请先确认创建本批缺失资料");
+            }
             if (type.equals("ANIME")) animeMapper.lockAnimeNames();
             Object savepoint = status.createSavepoint();
             String rowKey = "";
             try {
+                // 固定顺序锁定待创建的资料表，串行处理导入批次的重新匹配和创建。
+                var tables = pending.values().stream().map(PendingCatalog::table).distinct().sorted().toList();
+                if (!tables.isEmpty()) {
+                    if (!CREATABLE_CATALOGS.keySet().containsAll(tables)) throw new BusinessException("待创建资料类型无效");
+                    jdbc.execute("LOCK TABLE " + String.join(", ", tables) + " IN SHARE ROW EXCLUSIVE MODE");
+                }
+                Map<Long, Long> resolved = new HashMap<>();
                 ObjectNode mappings = json.createObjectNode();
                 for (ImportRow row : rows) {
                     rowKey = row.rowKey();
-                    verifyReferences(type, row);
-                    ObjectNode clean = prepare(type, row.data());
+                    row.pendingCatalogs().forEach((id, catalog) -> resolved.computeIfAbsent(id, key -> createCatalog(catalog)));
+                    ObjectNode resolvedData = row.pendingCatalogs().isEmpty() ? row.data() : replacePending(row.data(), id -> resolved.getOrDefault(id, id));
+                    verifyReferences(type, new ImportRow(row.rowKey(), row.row(), resolvedData, row.locations()));
+                    ObjectNode clean = prepare(type, resolvedData);
                     // 已确认的默认值及清洗结果不允许在提交时悄悄改变。
-                    if (!json.writeValueAsString(clean).equals(json.writeValueAsString(row.data()))) throw new BusinessException("资料标准化结果已变化，请重新预览");
+                    if (row.pendingCatalogs().isEmpty() && !json.writeValueAsString(clean).equals(json.writeValueAsString(row.data()))) throw new BusinessException("资料标准化结果已变化，请重新预览");
                     long id = type.equals("ANIME") ? animeService.createAnimeInTransaction(json.treeToValue(clean, AnimeDTO.class)).getId()
                             : bookService.createBookInTransaction(json.treeToValue(clean, BookDTO.class)).getId();
                     mappings.put(rowKey, id);

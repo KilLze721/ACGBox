@@ -107,10 +107,9 @@ public class BookDTO {
      */
     private Long seriesId;
 
-    /**
-     * 系列内排序，默认 0。
-     */
-    private Long seriesSortOrder;
+    /** 兼容仍提交旧排序字段的客户端，不保存排序值。 */
+    public void setSeriesSortOrder(Long ignored) {
+    }
 
     /**
      * 仅创建时生效，未选系列时按书名自动创建或复用。

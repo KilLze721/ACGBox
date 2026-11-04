@@ -83,8 +83,7 @@ public class BookServiceImpl implements BookService {
         Long seriesId = resolveSeries(dto, prepared.book().getName(), true);
         bookMapper.insert(prepared.book());
         saveRelations(prepared.book().getId(), prepared);
-        saveSeries(prepared.book().getId(), seriesId, seriesId == null || dto.getSeriesId() == null
-                ? 0L : order(dto.getSeriesSortOrder(), 0L));
+        saveSeries(prepared.book().getId(), seriesId);
         saveRating(prepared.book().getId(), dto.getPersonalRatingScore());
         return getBookById(prepared.book().getId());
     }
@@ -110,7 +109,7 @@ public class BookServiceImpl implements BookService {
         }
         deleteRelations(List.of(book.getId()), prepared.persons() != null);
         saveRelations(book.getId(), prepared);
-        saveSeries(book.getId(), seriesId, order(dto.getSeriesSortOrder(), 0L));
+        saveSeries(book.getId(), seriesId);
         saveRating(book.getId(), dto.getPersonalRatingScore());
         return getBookById(book.getId());
     }
@@ -181,7 +180,6 @@ public class BookServiceImpl implements BookService {
         dto.setPersons(prepared.persons());
         dto.setExternalLinks(prepared.links());
         dto.setTagIds(prepared.tags());
-        dto.setSeriesSortOrder(input.getSeriesId() == null ? null : order(input.getSeriesSortOrder(), 0L));
         return dto;
     }
 
@@ -205,7 +203,6 @@ public class BookServiceImpl implements BookService {
         if (dto.getSeriesId() != null && seriesMapper.selectById(dto.getSeriesId()) == null) {
             throw new BusinessException("所选系列不存在");
         }
-        range(dto.getSeriesSortOrder(), "seriesSortOrder", -2147483648L, 2147483647L, false);
         if (dto.getPublishDate() != null && (dto.getPublishDate().getYear() < 1 || dto.getPublishDate().getYear() > 9999)) {
             throw new BusinessException("发表日期必须是有效完整日期 yyyy-MM-dd");
         }
@@ -375,10 +372,10 @@ public class BookServiceImpl implements BookService {
         }
     }
 
-    private void saveSeries(Long id, Long seriesId, Long sortOrder) {
+    private void saveSeries(Long id, Long seriesId) {
         seriesItemMapper.delete(new LambdaQueryWrapper<SeriesItem>().eq(SeriesItem::getWorkType, "book").eq(SeriesItem::getWorkId, id));
         if (seriesId != null) {
-            seriesItemMapper.insert(SeriesItem.builder().workType("book").workId(id).seriesId(seriesId).sortOrder(sortOrder).build());
+            seriesItemMapper.insert(SeriesItem.builder().workType("book").workId(id).seriesId(seriesId).build());
         }
     }
 
@@ -427,7 +424,7 @@ public class BookServiceImpl implements BookService {
                 .eq(TagRelation::getTargetType, "BOOK").in(TagRelation::getTargetId, ids).orderByAsc(TagRelation::getId)), TagRelation::getTargetId);
         var series = group(seriesItemMapper.selectList(new LambdaQueryWrapper<SeriesItem>()
                 .eq(SeriesItem::getWorkType, "book").in(SeriesItem::getWorkId, ids)
-                .orderByAsc(SeriesItem::getSortOrder).orderByAsc(SeriesItem::getId)), SeriesItem::getWorkId);
+                .orderByAsc(SeriesItem::getId)), SeriesItem::getWorkId);
         var ratings = entityMap(personalRatingMapper.selectList(new LambdaQueryWrapper<PersonalRating>()
                 .eq(PersonalRating::getTargetType, "BOOK").in(PersonalRating::getTargetId, ids)), PersonalRating::getTargetId);
         return books.stream().map(book -> {
@@ -448,7 +445,6 @@ public class BookServiceImpl implements BookService {
                             .title(value.getTitle()).url(value.getUrl()).sortOrder(value.getSortOrder()).build()).toList())
                     .tagIds(tags.getOrDefault(id, List.of()).stream().map(TagRelation::getTagId).toList())
                     .seriesId(items.isEmpty() ? null : items.getFirst().getSeriesId())
-                    .seriesSortOrder(items.isEmpty() ? null : items.getFirst().getSortOrder())
                     .personalRatingScore(rating == null ? null : integerScore(rating.getScore())).build();
         }).toList();
     }

@@ -279,7 +279,7 @@ class SortOrderValidationTests {
     void bookNumericInputsRejectImplicitConversionWithoutChangingAnime(String token) throws Exception {
         JsonMapper mapper = JsonMapper.builder().build();
         for (String field : java.util.List.of("status", "volumeCount", "chapterCount",
-                "bookTypeId", "adaptationTypeId", "regionId", "seriesId", "seriesSortOrder")) {
+                "bookTypeId", "adaptationTypeId", "regionId", "seriesId")) {
             var body = mapper.createObjectNode().put("name", "书籍").put("bookTypeId", 1L)
                     .put("adaptationTypeId", 1L).put("regionId", 1L).put("status", 0L);
             body.set(field, mapper.readTree(token));
@@ -672,7 +672,8 @@ class SortOrderValidationTests {
         var first = json.createObjectNode().put("rowKey", "W2").put("name", "另一作品");
         var second = json.createObjectNode().put("rowKey", "W1").put("name", "=原文,不是公式")
                 .put("description", "中文简介\n第二行").put("status", 0).put("volumeCount", 0)
-                .put("personalRatingScore", 0).put("publishDate", "2026-11-02");
+                .put("personalRatingScore", 0).put("publishDate", "2026-11-02")
+                .put("seriesId", 7).put("seriesSortOrder", 3);
         var company = json.createObjectNode().put("rowKey", "W1").put("companyId", 3).put("companyName", "公司,名称").put("sortOrder", 0);
         var data = java.util.Map.of("works", java.util.List.of(first, second), "companies", java.util.List.of(company));
         byte[] bytes = files.write("BOOK", "EXPORT", data);
@@ -685,6 +686,8 @@ class SortOrderValidationTests {
         assertEquals(0, actual.path("personalRatingScore").asInt());
         assertEquals(0, actual.path("volumeCount").asInt());
         assertEquals("2026-11-02", actual.path("publishDate").asText());
+        assertEquals(7, actual.path("seriesId").asInt());
+        assertFalse(actual.has("seriesSortOrder"));
         assertEquals(3, actual.path("companies").get(0).path("companyId").asInt());
         assertTrue(parsed.rows().getFirst().data().path("companies").isEmpty());
         assertThrows(BusinessException.class, () -> files.read("ANIME", new MockMultipartFile("file", "books.xlsx", null, bytes)));
@@ -861,6 +864,59 @@ class SortOrderValidationTests {
             assertFalse(data.has("seriesName"));
             assertTrue(parsed.problems().warnings.stream().anyMatch(issue -> issue.message().contains("以 ID 和状态代码为准")));
         }
+    }
+
+    @Test
+    void namedTransferResolvesExistingCatalogsAndRejectsAmbiguousOrMissingNames() throws Exception {
+        var json = JsonMapper.builder().build();
+        var files = new org.killze.acgbox.service.impl.TransferWorkbook(json);
+        var work = json.createObjectNode().put("rowKey", "W1").put("name", "纯名称作品").put("status", 3)
+                .put("coverImageUrl", "https://example.com/cover.jpg")
+                .put("seriesName", "测试系列").put("regionName", "日本").put("adaptationTypeName", "原创").put("broadcastTypeName", "TV");
+        var tables = java.util.Map.of("works", java.util.List.of(work),
+                "companies", java.util.List.of(json.createObjectNode().put("rowKey", "W1").put("companyName", "公司").put("role", "制作")),
+                "persons", java.util.List.of(json.createObjectNode().put("rowKey", "W1").put("personName", "人物").put("role", "监督")),
+                "tags", java.util.List.of("标签", "奇幻", "冒险", "治愈").stream()
+                        .map(name -> json.createObjectNode().put("rowKey", "W1").put("tagName", name)).toList(),
+                "aliases", java.util.List.of(json.createObjectNode().put("rowKey", "W1").put("aliasName", "测试别名")),
+                "external_links", java.util.List.of(json.createObjectNode().put("rowKey", "W1").put("title", "官网").put("url", "https://example.com")));
+        byte[] bytes = files.writeNamed("ANIME", "EXPORT", tables);
+        try (var book = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new ByteArrayInputStream(bytes));
+             var out = new ByteArrayOutputStream()) {
+            var sheet = book.getSheet("works");
+            var row = sheet.getRow(1);
+            assertEquals("标签/奇幻/冒险/治愈", row.getCell(4).getStringCellValue());
+            assertEquals("公司（制作）", row.getCell(5).getStringCellValue());
+            assertEquals("人物（监督）", row.getCell(6).getStringCellValue());
+            assertEquals("https://example.com/cover.jpg", row.getCell(14).getStringCellValue());
+            assertEquals("测试别名", row.getCell(15).getStringCellValue());
+            assertEquals("官网（https://example.com）", row.getCell(16).getStringCellValue());
+            row.getCell(4).setCellValue("只改摘要");
+            book.write(out);
+            bytes = out.toByteArray();
+        }
+        var file = new MockMultipartFile("file", "named.xlsx", null, bytes);
+        var parsed = files.read("ANIME", file, (table, name) -> java.util.List.of(table.equals("series") ? 7L : 1L));
+        assertEquals(0, parsed.problems().errorCount);
+        var data = parsed.rows().getFirst().data();
+        assertEquals(7L, data.path("seriesId").asLong());
+        assertEquals("https://example.com/cover.jpg", data.path("coverImageUrl").asText());
+        assertEquals(3, data.path("status").asInt());
+        assertEquals(1, data.path("companies").get(0).path("companyId").asInt());
+        assertEquals(1, data.path("persons").get(0).path("personId").asInt());
+        assertEquals(1, data.path("tagIds").get(0).asInt());
+        assertFalse(data.has("tagSummary"));
+        assertEquals("测试别名", data.path("aliasNames").get(0).asText());
+        assertEquals("官网", data.path("externalLinks").get(0).path("title").asText());
+        assertFalse(data.has("seriesSortOrder"));
+        var invalid = files.read("ANIME", file, (table, name) -> switch (table) {
+            case "series" -> java.util.List.of(7L, 8L);
+            case "tag" -> name.equals("标签") ? java.util.List.of() : java.util.List.of(1L);
+            default -> java.util.List.of(1L);
+        });
+        assertEquals(2, invalid.problems().errorCount);
+        assertTrue(invalid.problems().errors.stream().anyMatch(issue -> issue.field().equals("seriesName") && issue.message().contains("多条")));
+        assertTrue(invalid.problems().errors.stream().anyMatch(issue -> issue.field().equals("tagName") && issue.message().contains("未找到")));
     }
 
     @Test

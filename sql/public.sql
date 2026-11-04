@@ -584,15 +584,13 @@ CREATE TABLE "public"."series_item" (
   "id" int4 NOT NULL DEFAULT nextval('series_item_id_seq'::regclass),
   "series_id" int4 NOT NULL,
   "work_type" varchar(50) COLLATE "pg_catalog"."default" NOT NULL,
-  "work_id" int4 NOT NULL,
-  "sort_order" int4 NOT NULL DEFAULT 0
+  "work_id" int4 NOT NULL
 )
 ;
 COMMENT ON COLUMN "public"."series_item"."id" IS '系列作品条目ID';
 COMMENT ON COLUMN "public"."series_item"."series_id" IS '系列ID，关联series表';
 COMMENT ON COLUMN "public"."series_item"."work_type" IS '作品类型，例如 anime、manga、novel';
 COMMENT ON COLUMN "public"."series_item"."work_id" IS '作品ID，对应work_type指向的作品表主键';
-COMMENT ON COLUMN "public"."series_item"."sort_order" IS '系列内排序值，数值越小越靠前';
 COMMENT ON TABLE "public"."series_item" IS '系列作品条目表：用于记录系列下包含的动画、漫画、小说等作品';
 
 -- ----------------------------
@@ -1076,7 +1074,6 @@ ALTER TABLE "public"."series" ADD CONSTRAINT "series_pkey" PRIMARY KEY ("id");
 -- ----------------------------
 CREATE INDEX "idx_series_item_series_sort" ON "public"."series_item" USING btree (
   "series_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "sort_order" "pg_catalog"."int4_ops" ASC NULLS LAST,
   "id" "pg_catalog"."int4_ops" ASC NULLS LAST
 );
 CREATE INDEX "idx_series_item_work" ON "public"."series_item" USING btree (

@@ -43,9 +43,4 @@ public class SeriesItem {
     @TableField("work_id")
     private Long workId;
 
-    /**
-     * 系列内排序值，数值越小越靠前。
-     */
-    @TableField("sort_order")
-    private Long sortOrder;
 }

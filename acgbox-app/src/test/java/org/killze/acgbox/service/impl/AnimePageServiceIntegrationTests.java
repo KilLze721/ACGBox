@@ -518,7 +518,6 @@ class AnimePageServiceIntegrationTests {
                         .seriesId(seriesId)
                         .workType("anime")
                         .workId(animeId)
-                        .sortOrder(0L)
                         .build()
         );
     }

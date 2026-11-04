@@ -199,21 +199,19 @@ public class AnimeServiceImpl implements AnimeService {
         ));
         // 创建动画系列关联。
         Long seriesId = buildSeriesId(animeDTO, anime);
-        Long seriesSortOrder = buildSeriesSortOrder(animeDTO);
         if (seriesId != null) {
             seriesItemMapper.insert(
                     SeriesItem.builder()
                             .seriesId(seriesId)
                             .workType("anime")
                             .workId(anime.getId())
-                            .sortOrder(seriesSortOrder)
                             .build()
             );
         }
         // 创建动画个人评分。
         BigDecimal personalRatingScore = saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
         // 返回动画信息。
-        return buildAnimeVO(anime, aliasNames, companies, externalLinks, tagIds, seriesId, seriesSortOrder, personalRatingScore);
+        return buildAnimeVO(anime, aliasNames, companies, externalLinks, tagIds, seriesId, personalRatingScore);
     }
 
     /** 共享的无业务写入清洗，保留名称原值和现有去重、排序语义。 */
@@ -238,7 +236,6 @@ public class AnimeServiceImpl implements AnimeService {
         if (dto.getSeriesId() != null && seriesMapper.selectById(dto.getSeriesId()) == null) {
             throw new BusinessException("系列不存在");
         }
-        dto.setSeriesSortOrder(dto.getSeriesId() == null ? null : buildSeriesSortOrder(dto));
         return dto;
     }
 
@@ -258,7 +255,6 @@ public class AnimeServiceImpl implements AnimeService {
      * @param externalLinks 外部链接列表
      * @param tagIds 标签 ID 列表
      * @param seriesId 系列 ID
-     * @param seriesSortOrder 系列内排序值
      * @param personalRatingScore 个人评分
      * @return 动画信息
      */
@@ -269,7 +265,6 @@ public class AnimeServiceImpl implements AnimeService {
             List<ExternalLinkDTO> externalLinks,
             List<Long> tagIds,
             Long seriesId,
-            Long seriesSortOrder,
             BigDecimal personalRatingScore
     ) {
         return AnimeVO.builder()
@@ -289,7 +284,6 @@ public class AnimeServiceImpl implements AnimeService {
                 .externalLinks(buildExternalLinkVOList(externalLinks))
                 .tagIds(tagIds)
                 .seriesId(seriesId)
-                .seriesSortOrder(seriesId == null ? null : seriesSortOrder)
                 .personalRatingScore(personalRatingScore)
                 .build();
     }
@@ -328,20 +322,6 @@ public class AnimeServiceImpl implements AnimeService {
                 .build();
         seriesMapper.insert(series);
         return series.getId();
-    }
-
-    /**
-     * 1.2 构建动画在系列内的排序值。
-     *
-     * @param animeDTO 动画信息
-     * @return 系列内排序值
-     */
-    private Long buildSeriesSortOrder(AnimeDTO animeDTO) {
-        // 加入已有系列时允许手动传入排序值，自动创建系列时默认排序为 0。
-        if (animeDTO.getSeriesId() != null && animeDTO.getSeriesSortOrder() != null) {
-            return animeDTO.getSeriesSortOrder();
-        }
-        return 0L;
     }
 
     /**
@@ -415,7 +395,6 @@ public class AnimeServiceImpl implements AnimeService {
         // 获取系列信息
         SeriesItem seriesItem = buildDetailSeriesItem(anime.getId());
         Long seriesId = seriesItem == null ? null : seriesItem.getSeriesId();
-        Long seriesSortOrder = seriesItem == null ? null : seriesItem.getSortOrder();
         // 获取个人评分
         BigDecimal personalRatingScore = buildDetailPersonalRatingScore(anime.getId());
         // 构建动画详情信息
@@ -436,7 +415,6 @@ public class AnimeServiceImpl implements AnimeService {
                 .externalLinks(externalLinks)
                 .tagIds(tagIds)
                 .seriesId(seriesId)
-                .seriesSortOrder(seriesSortOrder)
                 .personalRatingScore(personalRatingScore)
                 .build();
     }
@@ -534,7 +512,6 @@ public class AnimeServiceImpl implements AnimeService {
                 new LambdaQueryWrapper<SeriesItem>()
                         .eq(SeriesItem::getWorkType, "anime")
                         .eq(SeriesItem::getWorkId, animeId)
-                        .orderByAsc(SeriesItem::getSortOrder)
                         .orderByAsc(SeriesItem::getId)
         );
         return seriesItems.isEmpty() ? null : seriesItems.getFirst();
@@ -594,9 +571,6 @@ public class AnimeServiceImpl implements AnimeService {
         List<PersonRelationDTO> persons = animeDTO.getPersons() == null ? null : buildPersons(animeDTO.getPersons());
         List<Long> tagIds = buildTagIds(animeDTO.getTagIds());
         Long seriesId = buildUpdateSeriesId(animeDTO.getSeriesId());
-        Long seriesSortOrder = seriesId == null
-                ? null
-                : animeDTO.getSeriesSortOrder() == null ? 0L : animeDTO.getSeriesSortOrder();
         // 显式设置全部基础字段，确保可空字段也能被清空。
         animeMapper.update(
                 null,
@@ -625,7 +599,7 @@ public class AnimeServiceImpl implements AnimeService {
         }
         replaceAnimeExternalLinks(anime.getId(), externalLinks);
         replaceAnimeTags(anime.getId(), tagIds);
-        replaceAnimeSeries(anime.getId(), seriesId, seriesSortOrder);
+        replaceAnimeSeries(anime.getId(), seriesId);
         saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
         // 返回修改后的动画完整信息。
         return getAnimeById(anime.getId());
@@ -749,9 +723,8 @@ public class AnimeServiceImpl implements AnimeService {
      *
      * @param animeId 动画 ID
      * @param seriesId 系列 ID
-     * @param seriesSortOrder 系列内排序值
      */
-    private void replaceAnimeSeries(Long animeId, Long seriesId, Long seriesSortOrder) {
+    private void replaceAnimeSeries(Long animeId, Long seriesId) {
         seriesItemMapper.delete(
                 new LambdaQueryWrapper<SeriesItem>()
                         .eq(SeriesItem::getWorkType, "anime")
@@ -765,7 +738,6 @@ public class AnimeServiceImpl implements AnimeService {
                         .seriesId(seriesId)
                         .workType("anime")
                         .workId(animeId)
-                        .sortOrder(seriesSortOrder)
                         .build()
         );
     }
@@ -1346,7 +1318,6 @@ public class AnimeServiceImpl implements AnimeService {
                 new LambdaQueryWrapper<SeriesItem>()
                         .eq(SeriesItem::getWorkType, "anime")
                         .in(SeriesItem::getWorkId, animeIds)
-                        .orderByAsc(SeriesItem::getSortOrder)
                         .orderByAsc(SeriesItem::getId)
         );
         Set<Long> seriesIds = seriesItems.stream()

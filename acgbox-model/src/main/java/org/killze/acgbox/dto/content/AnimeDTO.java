@@ -104,10 +104,9 @@ public class AnimeDTO {
      */
     private Long seriesId;
 
-    /**
-     * 加入已有系列时的系列内排序值
-     */
-    private Long seriesSortOrder;
+    /** 兼容仍提交旧排序字段的客户端，不保存排序值。 */
+    public void setSeriesSortOrder(Long ignored) {
+    }
 
     /**
      * 未选择系列时，是否使用动画名称自动创建系列

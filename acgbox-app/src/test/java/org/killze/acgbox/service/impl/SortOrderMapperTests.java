@@ -86,7 +86,7 @@ class SortOrderMapperTests {
                     + "UNIQUE(target_type,target_id))");
             statement.execute("CREATE TABLE series (id INTEGER PRIMARY KEY, name TEXT, description TEXT, created_at TEXT, updated_at TEXT)");
             statement.execute("CREATE TABLE series_item (id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER, "
-                    + "work_type TEXT, work_id INTEGER, sort_order INTEGER DEFAULT 0)");
+                    + "work_type TEXT, work_id INTEGER)");
             statement.execute("CREATE TABLE tag_relation (id INTEGER PRIMARY KEY, target_type TEXT, target_id INTEGER, tag_id INTEGER)");
             statement.execute("CREATE TABLE book_type (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, "
                     + "sort_order INTEGER NOT NULL DEFAULT 0 CHECK(sort_order >= 0), created_at TEXT, updated_at TEXT)");
@@ -406,7 +406,7 @@ class SortOrderMapperTests {
         assertEquals(List.of("插画", "作者"), first.getPersons().stream().map(value -> value.getRole()).toList());
         assertEquals(-2L, first.getCompanies().getFirst().getSortOrder());
         assertEquals(first.getSeriesId(), second.getSeriesId());
-        assertEquals(0L, first.getSeriesSortOrder());
+        assertNotNull(first.getSeriesId());
         assertEquals(first, service.getBookById(first.getId()));
         BookPageDTO query = new BookPageDTO();
         query.setPersonId(1L);
@@ -572,7 +572,7 @@ class SortOrderMapperTests {
         service.createBook(fourth);
         session.getMapper(PersonRelationMapper.class).insert(PersonRelation.builder().targetType("ANIME").targetId(3L)
                 .personId(1L).role("导演").sortOrder(0L).build());
-        session.getMapper(SeriesItemMapper.class).insert(SeriesItem.builder().workType("anime").workId(3L).seriesId(seriesId).sortOrder(0L).build());
+        session.getMapper(SeriesItemMapper.class).insert(SeriesItem.builder().workType("anime").workId(3L).seriesId(seriesId).build());
         session.getMapper(AliasMapper.class).insert(Alias.builder().targetType("ANIME").targetId(3L).aliasName("Alternate").sortOrder(0L).build());
         BookPageDTO query = new BookPageDTO();
         query.setPersonId(1L);
@@ -642,7 +642,7 @@ class SortOrderMapperTests {
         session.getMapper(TagRelationMapper.class).insert(TagRelation.builder().targetType("ANIME").targetId(id).tagId(1L).build());
         session.getMapper(ExternalLinkMapper.class).insert(ExternalLink.builder().targetType("ANIME").targetId(id).title("动画").url("https://example.com/anime").sortOrder(0L).build());
         session.getMapper(PersonalRatingMapper.class).insert(PersonalRating.builder().targetType("ANIME").targetId(id).score(java.math.BigDecimal.TEN).build());
-        session.getMapper(SeriesItemMapper.class).insert(SeriesItem.builder().workType("anime").workId(id).seriesId(book.getSeriesId()).sortOrder(0L).build());
+        session.getMapper(SeriesItemMapper.class).insert(SeriesItem.builder().workType("anime").workId(id).seriesId(book.getSeriesId()).build());
         assertThrows(BusinessException.class, () -> service.deleteBooks(List.of(id, 999L)));
         assertNotNull(service.getBookById(id));
         service.deleteBooks(List.of(id, id));
@@ -777,7 +777,6 @@ class SortOrderMapperTests {
             var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
             when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
                     .thenAnswer(invocation -> ((String) invocation.getArgument(0)).contains("count(*)") ? 1L : 0L);
-            when(jdbc.queryForMap(anyString(), any(Object[].class))).thenReturn(java.util.Map.of());
             when(jdbc.queryForList(anyString(), eq(String.class), any(Object[].class))).thenAnswer(invocation -> {
                 String sql = invocation.getArgument(0);
                 return List.of(sql.contains("series") ? "测试系列" : sql.contains("adaptation_type") ? "漫画改编" : sql.contains("region") ? "日本"
@@ -803,19 +802,33 @@ class SortOrderMapperTests {
             try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(download.bytes()))) {
                 var sheet = workbook.getSheet("works");
                 var row = sheet.getRow(1);
-                int start = type.equals("ANIME") ? 16 : 17;
-                assertEquals("漫画改编", row.getCell(start).getStringCellValue());
-                assertEquals("日本", row.getCell(start + 1).getStringCellValue());
-                assertEquals(type.equals("ANIME") ? "已完结" : "其他", row.getCell(start + 2).getStringCellValue());
-                assertEquals(type.equals("ANIME") ? "TV" : "漫画", row.getCell(start + 3).getStringCellValue());
-                assertTrue(sheet.isColumnHidden(3));
-                assertEquals("2", row.getCell(3).getStringCellValue());
-                assertTrue(sheet.isColumnHidden(8));
+                boolean isAnime = type.equals("ANIME");
+                int offset = isAnime ? 0 : 1;
+                assertEquals("漫画改编", row.getCell(9 + offset).getStringCellValue());
+                assertEquals("日本", row.getCell(12 + offset).getStringCellValue());
+                assertEquals(isAnime ? "已完结" : "其他", row.getCell(11 + offset).getStringCellValue());
+                assertEquals(isAnime ? "TV" : "漫画", row.getCell(8 + offset).getStringCellValue());
+                var expected = isAnime
+                        ? List.of("编号", "作品名称", "系列名称", "简介", "标签", "公司与职责", "人物与职责", "总集数", "放送类型", "改编类型", "开播日期", "状态名称", "地区", "个人评分", "封面 URL", "别名", "外部链接")
+                        : List.of("编号", "作品名称", "系列名称", "简介", "标签", "公司与职责", "人物与职责", "卷数", "章节数", "书籍类型", "改编类型", "发表日期", "状态名称", "地区", "个人评分", "封面 URL", "别名", "外部链接");
+                var widths = isAnime ? new int[]{6,70,20,30,25,20,20,10,10,10,15,10,10,10,20,20,20} : new int[]{6,70,20,30,25,20,20,10,10,10,10,15,10,10,10,20,20,20};
+                assertEquals(expected.size(), sheet.getRow(0).getLastCellNum());
+                for (int i = 0; i < expected.size(); i++) {
+                    assertEquals(expected.get(i), sheet.getRow(0).getCell(i).getStringCellValue());
+                    assertEquals(widths[i] * 256, sheet.getColumnWidth(i));
+                    assertFalse(sheet.isColumnHidden(i));
+                }
+                for (var tab : workbook) {
+                    for (var dataRow : tab) assertEquals(16f, dataRow.getHeightInPoints());
+                    if (!tab.getSheetName().equals("meta")) {
+                        assertEquals("编号", tab.getRow(0).getCell(0).getStringCellValue());
+                        assertEquals(6 * 256, tab.getColumnWidth(0));
+                    }
+                }
                 if (type.equals("ANIME")) {
-                    assertEquals("7", row.getCell(8).getStringCellValue());
-                    assertEquals("测试系列", row.getCell(start + 4).getStringCellValue());
+                    assertEquals("测试系列", row.getCell(2).getStringCellValue());
                 } else {
-                    assertEquals(null, row.getCell(start + 4));
+                    assertEquals(null, row.getCell(2));
                 }
             }
         }
@@ -876,6 +889,107 @@ class SortOrderMapperTests {
         assertThrows(BusinessException.class, () -> service.updateAnime(dto));
         assertEquals("标题测试", service.getAnimeById(id).getName());
         assertEquals("官网", service.getAnimeById(id).getExternalLinks().getFirst().getTitle());
+    }
+
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
+    void namedPreviewListsFourMissingCatalogsAndCommitRequiresSeparateConsent(boolean failSecondWork) throws Exception {
+        seedBookCatalogs();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var files = new TransferWorkbook(json);
+        var service = new DataTransferServiceImpl();
+        var source = session.getConfiguration().getEnvironment().getDataSource();
+        var configuration = session.getConfiguration();
+        configuration.setEnvironment(new Environment("catalog-import-memory",
+                new org.mybatis.spring.transaction.SpringManagedTransactionFactory(), source));
+        var sessions = new org.mybatis.spring.SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(configuration));
+        var realJdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+        var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class, org.mockito.AdditionalAnswers.delegatesTo(realJdbc));
+        org.mockito.Mockito.doAnswer(invocation -> {
+            Object[] args = invocation.getRawArguments();
+            String sql = (String) args[0];
+            if (sql.endsWith(" FOR KEY SHARE")) return realJdbc.queryForList(sql.replace(" FOR KEY SHARE", ""), Long.class, (Object[]) args[2]);
+            return ((Object[]) args[2])[0].equals("新资料") ? List.of() : List.of(1L);
+        }).when(jdbc).queryForList(anyString(), eq(Long.class), any(Object[].class));
+        org.mockito.Mockito.doReturn(1L).when(jdbc).queryForObject(org.mockito.ArgumentMatchers.startsWith("SELECT 1 FROM pg_advisory"), eq(Long.class), any(Object[].class));
+        org.mockito.Mockito.doReturn(0L).when(jdbc).queryForObject(org.mockito.ArgumentMatchers.startsWith("SELECT count(*) FROM data_import_batch"), eq(Long.class), any(Object[].class));
+        org.mockito.Mockito.doReturn(1).when(jdbc).update(org.mockito.ArgumentMatchers.startsWith("INSERT INTO data_import_batch"), any(Object[].class));
+        org.mockito.Mockito.doReturn(1).when(jdbc).update(org.mockito.ArgumentMatchers.startsWith("UPDATE data_import_batch SET status"), any(Object[].class));
+        org.mockito.Mockito.doNothing().when(jdbc).execute(org.mockito.ArgumentMatchers.startsWith("LOCK TABLE "));
+        var redis = mock(org.springframework.data.redis.core.StringRedisTemplate.class);
+        @SuppressWarnings("unchecked")
+        org.springframework.data.redis.core.ValueOperations<String, String> cache = mock(org.springframework.data.redis.core.ValueOperations.class);
+        when(redis.opsForValue()).thenReturn(cache);
+        var stored = new java.util.concurrent.atomic.AtomicReference<String>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            stored.set(invocation.getArgument(1));
+            return null;
+        }).when(cache).set(anyString(), anyString(), any(java.time.Duration.class));
+        when(cache.get(anyString())).thenAnswer(invocation -> stored.get());
+        ReflectionTestUtils.setField(service, "json", json);
+        ReflectionTestUtils.setField(service, "workbook", files);
+        ReflectionTestUtils.setField(service, "bookService", bookService(sessions));
+        ReflectionTestUtils.setField(service, "bookMapper", sessions.getMapper(BookMapper.class));
+        ReflectionTestUtils.setField(service, "sessions", sessions);
+        var companies = new CompanyServiceImpl();
+        var persons = new PersonServiceImpl();
+        var series = new SeriesServiceImpl();
+        var tags = new TagServiceImpl();
+        ReflectionTestUtils.setField(companies, "companyMapper", sessions.getMapper(CompanyMapper.class));
+        ReflectionTestUtils.setField(persons, "personMapper", sessions.getMapper(PersonMapper.class));
+        ReflectionTestUtils.setField(series, "seriesMapper", sessions.getMapper(SeriesMapper.class));
+        ReflectionTestUtils.setField(tags, "tagMapper", sessions.getMapper(TagMapper.class));
+        ReflectionTestUtils.setField(service, "companyService", companies);
+        ReflectionTestUtils.setField(service, "personService", persons);
+        ReflectionTestUtils.setField(service, "seriesService", series);
+        ReflectionTestUtils.setField(service, "tagService", tags);
+        ReflectionTestUtils.setField(service, "jdbc", jdbc);
+        ReflectionTestUtils.setField(service, "redis", redis);
+        ReflectionTestUtils.setField(service, "transactionManager", new org.springframework.jdbc.datasource.DataSourceTransactionManager(source));
+        try (var validation = jakarta.validation.Validation.buildDefaultValidatorFactory()) {
+            ReflectionTestUtils.setField(service, "validator", validation.getValidator());
+            var first = json.createObjectNode().put("rowKey", "W1").put("name", "预览书籍")
+                    .put("bookTypeName", "漫画").put("adaptationTypeName", "原创").put("regionName", "日本").put("status", 0)
+                    .put("seriesName", "新资料");
+            var second = first.deepCopy().put("rowKey", "W2").put("name", "另一本");
+            var relation = json.createObjectNode().put("rowKey", "W1").put("companyName", "新资料")
+                    .put("personName", "新资料").put("tagName", "新资料").put("role", "作者");
+            var secondPerson = relation.deepCopy().put("rowKey", "W2");
+            byte[] bytes = files.writeNamed("BOOK", "TEMPLATE", java.util.Map.of("works", List.of(first, second),
+                    "companies", List.of(relation), "persons", failSecondWork ? List.of(relation, secondPerson, secondPerson) : List.of(relation),
+                    "tags", List.of(relation)));
+            var preview = service.preview("BOOK", "BOOK", 1L, new org.springframework.mock.web.MockMultipartFile("file", "books.xlsx", null, bytes));
+            assertEquals(0, preview.path("errorCount").asInt());
+            assertEquals(4, preview.path("pendingCatalogs").size());
+            assertEquals(2, preview.path("pendingCatalogs").get(0).path("rowKeys").size());
+            String token = preview.path("importToken").asText();
+            assertFalse(token.isBlank());
+            var row = mock(java.sql.ResultSet.class);
+            when(row.getString("import_token")).thenReturn(token);
+            when(row.getString("target_type")).thenReturn("BOOK");
+            when(row.getString("status")).thenReturn("READY");
+            when(row.getString("payload_hash")).thenReturn(json.readTree(stored.get()).path("payloadHash").asText());
+            when(row.getLong("account_id")).thenReturn(1L);
+            when(row.getLong("work_count")).thenReturn(2L);
+            when(row.getObject("expires_at", java.time.OffsetDateTime.class)).thenReturn(java.time.OffsetDateTime.parse(preview.path("expiresAt").asText()));
+            org.mockito.Mockito.doAnswer(invocation -> List.of(((org.springframework.jdbc.core.RowMapper<?>) invocation.getArgument(1)).mapRow(row, 0)))
+                    .when(jdbc).query(org.mockito.ArgumentMatchers.startsWith("SELECT * FROM data_import_batch"),
+                            org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Object>>any(), eq(token));
+            var request = json.createObjectNode().put("targetType", "BOOK").put("importToken", token).put("acknowledged", true);
+            assertEquals("请先确认创建本批缺失资料", assertThrows(BusinessException.class,
+                    () -> service.commit("BOOK", request, 1L)).getMessage());
+            assertEquals(0L, realJdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+            for (String table : List.of("series", "tag", "company", "person")) {
+                assertEquals(0L, realJdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE name=?", Long.class, "新资料"));
+            }
+            var result = service.commit("BOOK", request.put("createMissingCatalogs", true), 1L);
+            assertEquals(failSecondWork ? "INVALID" : "SUCCEEDED", result.path("status").asText(), result.toString());
+            if (failSecondWork) assertEquals("W2", result.path("rowKey").asText());
+        }
+        assertEquals(failSecondWork ? 0L : 2L, realJdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+        for (String table : List.of("series", "tag", "company", "person")) {
+            assertEquals(failSecondWork ? 0L : 1L, realJdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE name=?", Long.class, "新资料"));
+        }
     }
 
     @Test
@@ -1096,9 +1210,9 @@ class SortOrderMapperTests {
                     + "('ANIME',1,3,'制作',0),('ANIME',2,3,'制作',0),('ANIME',4,4,'制作',0),"
                     + "('BOOK',3,3,'出版',0),('ANIME',3,4,'制作',0)");
             statement.execute("INSERT INTO series (id,name) VALUES (8,'同名系列'),(9,'同名系列')");
-            statement.execute("INSERT INTO series_item (series_id,work_type,work_id,sort_order) VALUES "
-                    + "(8,'anime',1,9),(8,'anime',2,1),(8,'anime',4,0),(9,'anime',3,0),(9,'anime',5,0),"
-                    + "(8,'book',3,0),(8,'ANIME',5,0)");
+            statement.execute("INSERT INTO series_item (series_id,work_type,work_id) VALUES "
+                    + "(8,'anime',1),(8,'anime',2),(8,'anime',4),(9,'anime',3),(9,'anime',5),"
+                    + "(8,'book',3),(8,'ANIME',5)");
             statement.execute("INSERT INTO personal_rating (target_type,target_id,score) VALUES "
                     + "('ANIME',1,8),('ANIME',2,9),('ANIME',5,8)");
         }

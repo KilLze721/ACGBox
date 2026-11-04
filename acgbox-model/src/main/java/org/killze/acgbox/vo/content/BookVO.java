@@ -108,11 +108,6 @@ public class BookVO {
     private Long seriesId;
 
     /**
-     * 系列内排序，无系列时为空。
-     */
-    private Long seriesSortOrder;
-
-    /**
      * 站长个人评分，仅 0 到 10 的整数，未评分为空。
      */
     private Long personalRatingScore;
