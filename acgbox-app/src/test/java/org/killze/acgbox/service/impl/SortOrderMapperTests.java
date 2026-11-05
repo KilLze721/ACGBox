@@ -892,8 +892,8 @@ class SortOrderMapperTests {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.ValueSource(booleans = {false, true})
-    void namedPreviewListsFourMissingCatalogsAndCommitRequiresSeparateConsent(boolean failSecondWork) throws Exception {
+    @org.junit.jupiter.params.provider.CsvSource({"false,false", "true,false", "false,true"})
+    void namedPreviewListsFourMissingCatalogsAndCommitRequiresSeparateConsent(boolean failSecondWork, boolean cancelPreview) throws Exception {
         seedBookCatalogs();
         var json = tools.jackson.databind.json.JsonMapper.builder().build();
         var files = new TransferWorkbook(json);
@@ -975,6 +975,17 @@ class SortOrderMapperTests {
             org.mockito.Mockito.doAnswer(invocation -> List.of(((org.springframework.jdbc.core.RowMapper<?>) invocation.getArgument(1)).mapRow(row, 0)))
                     .when(jdbc).query(org.mockito.ArgumentMatchers.startsWith("SELECT * FROM data_import_batch"),
                             org.mockito.ArgumentMatchers.<org.springframework.jdbc.core.RowMapper<Object>>any(), eq(token));
+            assertThrows(BusinessException.class, () -> service.batch("BOOK", "BOOK", token, 2L, false));
+            var recovered = service.batch("BOOK", "BOOK", token, 1L, false);
+            assertEquals("READY", recovered.path("status").asText());
+            assertEquals(json.readTree(preview.toString()), json.readTree(recovered.path("preview").toString()));
+            if (cancelPreview) {
+                var cancelled = service.batch("BOOK", "BOOK", token, 1L, true);
+                assertEquals("CANCELLED", cancelled.path("status").asText());
+                assertFalse(cancelled.has("preview"));
+                assertEquals(0L, realJdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+                return;
+            }
             var request = json.createObjectNode().put("targetType", "BOOK").put("importToken", token).put("acknowledged", true);
             assertEquals("请先确认创建本批缺失资料", assertThrows(BusinessException.class,
                     () -> service.commit("BOOK", request, 1L)).getMessage());

@@ -57,6 +57,8 @@ public class DataTransferServiceImpl implements DataTransferService {
     private record Batch(String token, long owner, String type, String state, String payloadHash,
                          Instant expiresAt, String result, String reason, long workCount) { }
 
+    private record CachedPreview(JsonNode cache, List<ImportRow> rows) { }
+
     public void requireType(String type, String requested) {
         if (!type.equals(requested)) throw new BusinessException("targetType 必须与当前接口类型 " + type + " 一致");
     }
@@ -278,6 +280,7 @@ public class DataTransferServiceImpl implements DataTransferService {
         ObjectNode cached = json.createObjectNode().put("owner", owner).put("targetType", type).put("schemaVersion", 1)
                 .put("expiresAt", expires.toString()).put("payloadHash", hash).put("payload", payload);
         cached.set("warnings", json.valueToTree(problems.warnings));
+        cached.put("warningCount", problems.warningCount);
         String cache = limitedJson(cached, RESPONSE_LIMIT);
         response.put("importToken", token).put("expiresAt", expires.toString());
         limitedJson(Result.success(response), RESPONSE_LIMIT);
@@ -468,19 +471,7 @@ public class DataTransferServiceImpl implements DataTransferService {
             if (raw == null) return terminal(batch, "INVALID", "预览缓存已丢失，请重新上传预览", null);
             List<ImportRow> rows;
             try {
-                if (raw.getBytes(StandardCharsets.UTF_8).length > RESPONSE_LIMIT) throw new IllegalArgumentException();
-                JsonNode cache = json.readTree(raw);
-                String payload = cache.path("payload").asText();
-                if (!cache.path("owner").isIntegralNumber() || !cache.path("owner").canConvertToLong()
-                        || cache.path("owner").asLong() != owner || !type.equals(cache.path("targetType").asText())
-                        || !cache.path("schemaVersion").isIntegralNumber() || !cache.path("schemaVersion").canConvertToInt()
-                        || cache.path("schemaVersion").asInt() != 1 || !batch.expiresAt().equals(Instant.parse(cache.path("expiresAt").asText()))
-                        || !batch.payloadHash().equals(cache.path("payloadHash").asText()) || !batch.payloadHash().equals(sha256(payload.getBytes(StandardCharsets.UTF_8)))
-                        || payload.getBytes(StandardCharsets.UTF_8).length > FILE_LIMIT) throw new IllegalArgumentException();
-                rows = json.readValue(payload, json.getTypeFactory().constructCollectionType(List.class, ImportRow.class));
-                if (rows.size() != batch.workCount() || rows.isEmpty() || rows.size() > 500) throw new IllegalArgumentException();
-                // 校验原摘要后，再忽略旧预览中已退役的系列内排序。
-                rows.forEach(row -> row.data().remove("seriesSortOrder"));
+                rows = readCachedPreview(batch, raw).rows();
             } catch (RuntimeException e) { return terminal(batch, "INVALID", "预览绑定或摘要校验失败，请重新上传", null); }
             Map<Long, PendingCatalog> pending = new LinkedHashMap<>();
             rows.forEach(row -> pending.putAll(row.pendingCatalogs()));
@@ -545,11 +536,70 @@ public class DataTransferServiceImpl implements DataTransferService {
             if (!batch.state().equals("READY")) return view(batch);
             if (!batch.expiresAt().isAfter(Instant.now())) return terminal(batch, "EXPIRED", "预览已过期，请先核对已有结果后重新预览", null);
             if (cancel) return terminal(batch, "CANCELLED", "预览已取消，未修改作品", null);
+            String raw;
             try {
-                if (redis.opsForValue().get(CACHE_PREFIX + validToken) == null) return terminal(batch, "INVALID", "预览缓存已丢失，请重新上传", null);
+                raw = redis.opsForValue().get(CACHE_PREFIX + validToken);
             } catch (DataAccessException e) { return base(batch, "READY").put("retryable", true).put("message", "预览缓存服务暂不可用，请稍后查询"); }
-            return view(batch);
+            if (raw == null) return terminal(batch, "INVALID", "预览缓存已丢失，请重新上传", null);
+            CachedPreview cached;
+            try { cached = readCachedPreview(batch, raw); }
+            catch (RuntimeException e) { return terminal(batch, "INVALID", "预览绑定或摘要校验失败，请重新上传", null); }
+            ObjectNode result = base(batch, "READY");
+            result.set("preview", restorePreview(batch, cached));
+            limitedJson(Result.success(result), RESPONSE_LIMIT);
+            return result;
         });
+    }
+
+    private CachedPreview readCachedPreview(Batch batch, String raw) {
+        if (raw.getBytes(StandardCharsets.UTF_8).length > RESPONSE_LIMIT) throw new IllegalArgumentException();
+        JsonNode cache = json.readTree(raw);
+        String payload = cache.path("payload").asText();
+        byte[] bytes = payload.getBytes(StandardCharsets.UTF_8);
+        if (!cache.path("owner").isIntegralNumber() || !cache.path("owner").canConvertToLong()
+                || cache.path("owner").asLong() != batch.owner() || !batch.type().equals(cache.path("targetType").asText())
+                || !cache.path("schemaVersion").isIntegralNumber() || !cache.path("schemaVersion").canConvertToInt()
+                || cache.path("schemaVersion").asInt() != 1 || !batch.expiresAt().equals(Instant.parse(cache.path("expiresAt").asText()))
+                || !batch.payloadHash().equals(cache.path("payloadHash").asText()) || !batch.payloadHash().equals(sha256(bytes))
+                || bytes.length > FILE_LIMIT) throw new IllegalArgumentException();
+        List<ImportRow> rows = json.readValue(payload, json.getTypeFactory().constructCollectionType(List.class, ImportRow.class));
+        if (rows.size() != batch.workCount() || rows.isEmpty() || rows.size() > WORK_LIMIT) throw new IllegalArgumentException();
+        // 校验原摘要后，再忽略旧预览中已退役的系列内排序。
+        rows.forEach(row -> row.data().remove("seriesSortOrder"));
+        return new CachedPreview(cache, rows);
+    }
+
+    /** 从提交使用的原始快照恢复展示，不重新解析文件、不续期。 */
+    private ObjectNode restorePreview(Batch batch, CachedPreview cached) {
+        ObjectNode preview = base(batch, "READY");
+        preview.remove("status");
+        var warnings = cached.cache().path("warnings");
+        long warningCount = cached.cache().path("warningCount").asLong(warnings.size());
+        preview.put("errorCount", 0).put("warningCount", warningCount).put("truncated", warningCount > 100);
+        preview.putArray("errors");
+        preview.set("warnings", warnings.isArray() ? warnings : json.createArrayNode());
+        var names = previewNames(batch.type(), cached.rows());
+        var rows = preview.putArray("rows");
+        var pending = preview.putArray("pendingCatalogs");
+        Map<Long, ObjectNode> pendingById = new LinkedHashMap<>();
+        long relations = 0;
+        for (ImportRow row : cached.rows()) {
+            rows.addObject().put("rowKey", row.rowKey()).put("row", row.row()).set("data", row.data());
+            for (String property : List.of("aliasNames", "companies", "persons", "tagIds", "externalLinks")) {
+                relations += row.data().path(property).size();
+            }
+            row.pendingCatalogs().forEach((id, catalog) -> {
+                names.computeIfAbsent(catalog.table(), key -> new LinkedHashMap<>()).put(id, catalog.name());
+                pendingById.computeIfAbsent(id, key -> {
+                    var item = pending.addObject().put("temporaryId", id).put("type", catalog.table()).put("name", catalog.name());
+                    item.putArray("rowKeys");
+                    return item;
+                }).withArray("rowKeys").add(row.rowKey());
+            });
+        }
+        preview.put("relationCount", relations);
+        preview.set("referenceNames", json.valueToTree(names));
+        return preview;
     }
 
     private Batch load(String token, boolean lock, boolean nowait) {
