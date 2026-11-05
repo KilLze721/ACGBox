@@ -1,18 +1,18 @@
 /*
  Navicat Premium Dump SQL
 
- Source Server         : 服务器PgSQL
+ Source Server         : PostgreSQL
  Source Server Type    : PostgreSQL
- Source Server Version : 160003 (160003)
- Source Host           : 192.144.149.163:35432
+ Source Server Version : 180001 (180001)
+ Source Host           : localhost:5432
  Source Catalog        : acgbox
  Source Schema         : public
 
  Target Server Type    : PostgreSQL
- Target Server Version : 160003 (160003)
+ Target Server Version : 180001 (180001)
  File Encoding         : 65001
 
- Date: 02/11/2026 16:09:00
+ Date: 04/11/2026 18:16:12
 */
 
 
@@ -272,7 +272,7 @@ CREATE TABLE "public"."anime" (
   "name" varchar(200) COLLATE "pg_catalog"."default" NOT NULL,
   "episode_count" int4,
   "broadcast_type_id" int4 NOT NULL,
-  "adaptation_type_id" int4 NOT NULL,
+  "adaptation_type_id" intype_id" int4 NOT NULL,
   "air_date" date,
   "cover_image_url" varchar(500) COLLATE "pg_catalog"."default",
   "status" int4 NOT NULL,
@@ -295,8 +295,7 @@ COMMENT ON COLUMN "public"."anime"."description" IS '动画简介';
 COMMENT ON COLUMN "public"."anime"."created_at" IS '记录创建时间';
 COMMENT ON COLUMN "public"."anime"."updated_at" IS '记录最后更新时间';
 COMMENT ON TABLE "public"."anime" IS '动画表：存储动画的基本信息';
-
--- ----------------------------
+----------------------
 -- Table structure for book
 -- ----------------------------
 DROP TABLE IF EXISTS "public"."book";
@@ -667,21 +666,21 @@ COMMENT ON TABLE "public"."user_account" IS '用户账号表：存储管理员�
 -- ----------------------------
 ALTER SEQUENCE "public"."adaptation_type_id_seq"
 OWNED BY "public"."adaptation_type"."id";
-SELECT setval('"public"."adaptation_type_id_seq"', 100, true);
+SELECT setval('"public"."adaptation_type_id_seq"', 101, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."alias_id_seq"
 OWNED BY "public"."alias"."id";
-SELECT setval('"public"."alias_id_seq"', 255, true);
+SELECT setval('"public"."alias_id_seq"', 258, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."anime_id_seq"
 OWNED BY "public"."anime"."id";
-SELECT setval('"public"."anime_id_seq"', 432, true);
+SELECT setval('"public"."anime_id_seq"', 442, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -702,49 +701,49 @@ SELECT setval('"public"."book_type_id_seq"', 4, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."broadcast_type_id_seq"
 OWNED BY "public"."broadcast_type"."id";
-SELECT setval('"public"."broadcast_type_id_seq"', 94, true);
+SELECT setval('"public"."broadcast_type_id_seq"', 97, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_id_seq"
 OWNED BY "public"."company"."id";
-SELECT setval('"public"."company_id_seq"', 181, true);
+SELECT setval('"public"."company_id_seq"', 185, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."company_relation_id_seq"
 OWNED BY "public"."company_relation"."id";
-SELECT setval('"public"."company_relation_id_seq"', 215, true);
+SELECT setval('"public"."company_relation_id_seq"', 247, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."external_link_id_seq"
 OWNED BY "public"."external_link"."id";
-SELECT setval('"public"."external_link_id_seq"', 161, true);
+SELECT setval('"public"."external_link_id_seq"', 209, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_id_seq"
 OWNED BY "public"."person"."id";
-SELECT setval('"public"."person_id_seq"', 2, true);
+SELECT setval('"public"."person_id_seq"', 8, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."person_relation_id_seq"
 OWNED BY "public"."person_relation"."id";
-SELECT setval('"public"."person_relation_id_seq"', 12, true);
+SELECT setval('"public"."person_relation_id_seq"', 42, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."personal_rating_id_seq"
 OWNED BY "public"."personal_rating"."id";
-SELECT setval('"public"."personal_rating_id_seq"', 318, true);
+SELECT setval('"public"."personal_rating_id_seq"', 327, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -758,28 +757,28 @@ SELECT setval('"public"."region_id_seq"', 95, true);
 -- ----------------------------
 ALTER SEQUENCE "public"."series_id_seq"
 OWNED BY "public"."series"."id";
-SELECT setval('"public"."series_id_seq"', 188, true);
+SELECT setval('"public"."series_id_seq"', 193, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."series_item_id_seq"
 OWNED BY "public"."series_item"."id";
-SELECT setval('"public"."series_item_id_seq"', 205, true);
+SELECT setval('"public"."series_item_id_seq"', 237, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_id_seq"
 OWNED BY "public"."tag"."id";
-SELECT setval('"public"."tag_id_seq"', 276, true);
+SELECT setval('"public"."tag_id_seq"', 280, true);
 
 -- ----------------------------
 -- Alter sequences owned by
 -- ----------------------------
 ALTER SEQUENCE "public"."tag_relation_id_seq"
 OWNED BY "public"."tag_relation"."id";
-SELECT setval('"public"."tag_relation_id_seq"', 695, true);
+SELECT setval('"public"."tag_relation_id_seq"', 801, true);
 
 -- ----------------------------
 -- Alter sequences owned by
@@ -824,7 +823,7 @@ CREATE UNIQUE INDEX "uk_alias_target_name" ON "public"."alias" USING btree (
 -- ----------------------------
 -- Checks structure for table alias
 -- ----------------------------
-ALTER TABLE "public"."alias" ADD CONSTRAINT "alias_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'MANGA'::character varying, 'NOVEL'::character varying, 'SERIES'::character varying, 'OTHER'::character varying, 'BOOK'::character varying]::text[]));
+ALTER TABLE "public"."alias" ADD CONSTRAINT "alias_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'MANGA'::character varying::text, 'NOVEL'::character varying::text, 'SERIES'::character varying::text, 'OTHER'::character varying::text, 'BOOK'::character varying::text]));
 
 -- ----------------------------
 -- Primary Key structure for table alias
@@ -857,10 +856,10 @@ CREATE INDEX "idx_book_type_id" ON "public"."book" USING btree (
 -- ----------------------------
 -- Checks structure for table book
 -- ----------------------------
+ALTER TABLE "public"."book" ADD CONSTRAINT "ck_book_name" CHECK (name::text = btrim(name::text) AND name::text <> ''::text);
 ALTER TABLE "public"."book" ADD CONSTRAINT "ck_book_status" CHECK (status = ANY (ARRAY[0, 1, 2, 3, 4, 5]));
 ALTER TABLE "public"."book" ADD CONSTRAINT "ck_book_volume_count" CHECK (volume_count >= 0);
 ALTER TABLE "public"."book" ADD CONSTRAINT "ck_book_chapter_count" CHECK (chapter_count >= 0);
-ALTER TABLE "public"."book" ADD CONSTRAINT "ck_book_name" CHECK (name::text = btrim(name::text) AND name::text <> ''::text);
 
 -- ----------------------------
 -- Primary Key structure for table book
@@ -922,7 +921,7 @@ CREATE UNIQUE INDEX "uk_company_relation_target_company" ON "public"."company_re
 -- ----------------------------
 -- Checks structure for table company_relation
 -- ----------------------------
-ALTER TABLE "public"."company_relation" ADD CONSTRAINT "company_relation_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'MANGA'::character varying, 'NOVEL'::character varying, 'SERIES'::character varying, 'OTHER'::character varying, 'BOOK'::character varying]::text[]));
+ALTER TABLE "public"."company_relation" ADD CONSTRAINT "company_relation_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'MANGA'::character varying::text, 'NOVEL'::character varying::text, 'SERIES'::character varying::text, 'OTHER'::character varying::text, 'BOOK'::character varying::text]));
 
 -- ----------------------------
 -- Primary Key structure for table company_relation
@@ -943,10 +942,10 @@ CREATE INDEX "idx_data_import_batch_owner_ready" ON "public"."data_import_batch"
 -- ----------------------------
 -- Checks structure for table data_import_batch
 -- ----------------------------
-ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'BOOK'::character varying]::text[]));
 ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_schema_version_check" CHECK (schema_version = 1);
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_status_check" CHECK (status::text = ANY (ARRAY['READY'::character varying::text, 'SUCCEEDED'::character varying::text, 'INVALID'::character varying::text, 'CANCELLED'::character varying::text, 'EXPIRED'::character varying::text]));
+ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'BOOK'::character varying::text]));
 ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_work_count_check" CHECK (work_count >= 1 AND work_count <= 500);
-ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_status_check" CHECK (status::text = ANY (ARRAY['READY'::character varying, 'SUCCEEDED'::character varying, 'INVALID'::character varying, 'CANCELLED'::character varying, 'EXPIRED'::character varying]::text[]));
 ALTER TABLE "public"."data_import_batch" ADD CONSTRAINT "data_import_batch_check" CHECK (status::text = 'READY'::text AND completed_at IS NULL OR status::text <> 'READY'::text AND completed_at IS NOT NULL);
 
 -- ----------------------------
@@ -976,7 +975,7 @@ CREATE UNIQUE INDEX "uk_external_link_target_url" ON "public"."external_link" US
 -- ----------------------------
 -- Checks structure for table external_link
 -- ----------------------------
-ALTER TABLE "public"."external_link" ADD CONSTRAINT "external_link_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'COMPANY'::character varying, 'SERIES'::character varying, 'MANGA'::character varying, 'NOVEL'::character varying, 'OTHER'::character varying, 'BOOK'::character varying]::text[]));
+ALTER TABLE "public"."external_link" ADD CONSTRAINT "external_link_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'COMPANY'::character varying::text, 'SERIES'::character varying::text, 'MANGA'::character varying::text, 'NOVEL'::character varying::text, 'OTHER'::character varying::text, 'BOOK'::character varying::text]));
 
 -- ----------------------------
 -- Primary Key structure for table external_link
@@ -1023,7 +1022,7 @@ ALTER TABLE "public"."person_relation" ADD CONSTRAINT "uk_person_relation_target
 -- ----------------------------
 -- Checks structure for table person_relation
 -- ----------------------------
-ALTER TABLE "public"."person_relation" ADD CONSTRAINT "ck_person_relation_target_type" CHECK (target_type::text = ANY (ARRAY['BOOK'::character varying, 'ANIME'::character varying]::text[]));
+ALTER TABLE "public"."person_relation" ADD CONSTRAINT "ck_person_relation_target_type" CHECK (target_type::text = ANY (ARRAY['BOOK'::character varying::text, 'ANIME'::character varying::text]));
 ALTER TABLE "public"."person_relation" ADD CONSTRAINT "ck_person_relation_role" CHECK (role::text = btrim(role::text) AND role::text <> ''::text);
 ALTER TABLE "public"."person_relation" ADD CONSTRAINT "ck_person_relation_sort_order" CHECK (sort_order >= 0);
 
@@ -1046,8 +1045,8 @@ CREATE UNIQUE INDEX "uk_personal_rating_target" ON "public"."personal_rating" US
 -- ----------------------------
 -- Checks structure for table personal_rating
 -- ----------------------------
+ALTER TABLE "public"."personal_rating" ADD CONSTRAINT "personal_rating_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'MANGA'::character varying::text, 'NOVEL'::character varying::text, 'BOOK'::character varying::text]));
 ALTER TABLE "public"."personal_rating" ADD CONSTRAINT "personal_rating_score_check" CHECK (score >= 0::numeric AND score <= 10::numeric);
-ALTER TABLE "public"."personal_rating" ADD CONSTRAINT "personal_rating_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'MANGA'::character varying, 'NOVEL'::character varying, 'BOOK'::character varying]::text[]));
 
 -- ----------------------------
 -- Primary Key structure for table personal_rating
@@ -1072,10 +1071,6 @@ ALTER TABLE "public"."series" ADD CONSTRAINT "series_pkey" PRIMARY KEY ("id");
 -- ----------------------------
 -- Indexes structure for table series_item
 -- ----------------------------
-CREATE INDEX "idx_series_item_series_sort" ON "public"."series_item" USING btree (
-  "series_id" "pg_catalog"."int4_ops" ASC NULLS LAST,
-  "id" "pg_catalog"."int4_ops" ASC NULLS LAST
-);
 CREATE INDEX "idx_series_item_work" ON "public"."series_item" USING btree (
   "work_type" COLLATE "pg_catalog"."default" "pg_catalog"."text_ops" ASC NULLS LAST,
   "work_id" "pg_catalog"."int4_ops" ASC NULLS LAST
@@ -1089,7 +1084,7 @@ ALTER TABLE "public"."series_item" ADD CONSTRAINT "series_item_series_work_key" 
 -- ----------------------------
 -- Checks structure for table series_item
 -- ----------------------------
-ALTER TABLE "public"."series_item" ADD CONSTRAINT "series_item_work_type_check" CHECK (work_type::text = ANY (ARRAY['anime'::character varying, 'manga'::character varying, 'novel'::character varying, 'book'::character varying]::text[]));
+ALTER TABLE "public"."series_item" ADD CONSTRAINT "series_item_work_type_check" CHECK (work_type::text = ANY (ARRAY['anime'::character varying::text, 'manga'::character varying::text, 'novel'::character varying::text, 'book'::character varying::text]));
 
 -- ----------------------------
 -- Primary Key structure for table series_item
@@ -1125,7 +1120,7 @@ CREATE UNIQUE INDEX "uk_tag_relation_target_tag" ON "public"."tag_relation" USIN
 -- ----------------------------
 -- Checks structure for table tag_relation
 -- ----------------------------
-ALTER TABLE "public"."tag_relation" ADD CONSTRAINT "tag_relation_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying, 'MANGA'::character varying, 'NOVEL'::character varying, 'SERIES'::character varying, 'OTHER'::character varying, 'BOOK'::character varying]::text[]));
+ALTER TABLE "public"."tag_relation" ADD CONSTRAINT "tag_relation_target_type_check" CHECK (target_type::text = ANY (ARRAY['ANIME'::character varying::text, 'MANGA'::character varying::text, 'NOVEL'::character varying::text, 'SERIES'::character varying::text, 'OTHER'::character varying::text, 'BOOK'::character varying::text]));
 
 -- ----------------------------
 -- Primary Key structure for table tag_relation
@@ -1149,9 +1144,9 @@ CREATE UNIQUE INDEX "uk_user_account_username_lower" ON "public"."user_account" 
 -- ----------------------------
 -- Checks structure for table user_account
 -- ----------------------------
-ALTER TABLE "public"."user_account" ADD CONSTRAINT "ck_user_account_email" CHECK (email::text = btrim(email::text) AND email::text <> ''::text);
 ALTER TABLE "public"."user_account" ADD CONSTRAINT "ck_user_account_role" CHECK (role::text = ANY (ARRAY['ADMIN'::character varying::text, 'EDITOR'::character varying::text, 'USER'::character varying::text]));
 ALTER TABLE "public"."user_account" ADD CONSTRAINT "ck_user_account_username" CHECK (username::text = btrim(username::text) AND username::text <> ''::text AND POSITION(('@'::text) IN (username)) = 0);
+ALTER TABLE "public"."user_account" ADD CONSTRAINT "ck_user_account_email" CHECK (email::text = btrim(email::text) AND email::text <> ''::text);
 
 -- ----------------------------
 -- Primary Key structure for table user_account
