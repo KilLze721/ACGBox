@@ -1004,6 +1004,133 @@ class SortOrderMapperTests {
     }
 
     @Test
+    void dataQualityChecksScopeCountsPagingAndTypesThroughTheReadEndpoint() throws Exception {
+        // 内存库提供 PostgreSQL 文本函数的等价行为；实际筛选、连接、分组和分页由 SQL 执行。
+        org.sqlite.Collation.create(connection, "C", new org.sqlite.Collation() {
+            @Override
+            protected int xCompare(String left, String right) {
+                return left.compareTo(right);
+            }
+        });
+        org.sqlite.Function.create(connection, "btrim", new org.sqlite.Function() {
+            @Override
+            protected void xFunc() throws java.sql.SQLException {
+                String value = value_text(0);
+                if (value == null) {
+                    result();
+                    return;
+                }
+                String trim = value_text(1);
+                int start = 0, end = value.length();
+                while (start < end && trim.indexOf(value.charAt(start)) >= 0) start++;
+                while (end > start && trim.indexOf(value.charAt(end - 1)) >= 0) end--;
+                result(value.substring(start, end));
+            }
+        });
+        org.sqlite.Function.create(connection, "translate", new org.sqlite.Function() {
+            @Override
+            protected void xFunc() throws java.sql.SQLException {
+                String from = value_text(1), to = value_text(2);
+                var value = new StringBuilder(value_text(0));
+                for (int i = 0; i < value.length(); i++) {
+                    int index = from.indexOf(value.charAt(i));
+                    if (index >= 0) value.setCharAt(i, to.charAt(index));
+                }
+                result(value.toString());
+            }
+        });
+        org.sqlite.Function.create(connection, "strpos", new org.sqlite.Function() {
+            @Override
+            protected void xFunc() throws java.sql.SQLException {
+                result(value_text(0).indexOf(value_text(1)) + 1);
+            }
+        });
+        seedBookCatalogs();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        jdbc.update("INSERT INTO broadcast_type (id,name) VALUES (1,'TV')");
+        jdbc.update("INSERT INTO book_type (id,name) VALUES (2,'漫画')");
+        jdbc.update("""
+                INSERT INTO anime (id,name,cover_image_url,description,region_id,broadcast_type_id,updated_at)
+                VALUES (1,' Hero ',?,?,1,1,'2026-11-06 12:00:00.000'),
+                       (2,'hERO','https://example.com/cover.jpg','短',1,1,'2026-11-06 12:00:00.000'),
+                       (3,'Hero!',NULL,'简介',1,1,'2026-11-05 12:00:00.000')
+                """, " \t", "\r\n");
+        jdbc.update("""
+                INSERT INTO book (id,name,book_type_id,adaptation_type_id,region_id,status,created_at,updated_at)
+                VALUES (1,' Title ',1,1,1,0,'2026-11-06','2026-11-06 12:00:00.000'),
+                       (2,'TITLE',1,1,1,0,'2026-11-06','2026-11-06 12:00:00.000'),
+                       (3,'title',2,1,1,0,'2026-11-06','2026-11-06 12:00:00.000'),
+                       (4,'Hero',1,1,1,0,'2026-11-06','2026-11-06 12:00:00.000')
+                """);
+        jdbc.update("""
+                INSERT INTO person_relation (target_type,target_id,person_id,role)
+                VALUES ('BOOK',1,1,'作者'),('ANIME',2,1,'导演'),('ANIME',2,1,'脚本')
+                """);
+
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(jdbc)))
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "ANIME").param("keyword", " \tHeRo\n").param("ruleCodes", "MISSING_PERSON,MISSING_COVER,MISSING_PERSON")
+                .param("matchMode", "ALL");
+        var response = json.readTree(mvc.perform(request).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(200, response.path("code").asInt(), response.toString());
+        var result = response.path("data");
+        assertEquals(2, result.path("total").asInt());
+        assertEquals(3, result.path("summary").path("scopeTotal").asInt());
+        assertEquals(1, result.path("summary").path("ruleCounts").path("MISSING_DESCRIPTION").asInt());
+        assertEquals(2, result.path("summary").path("ruleCounts").path("SAME_NAME_REVIEW").asInt());
+        assertEquals(1, result.path("rows").get(0).path("targetId").asInt());
+        assertEquals("MISSING_COVER", result.path("rows").get(0).path("issues").get(0).path("code").asText());
+        assertEquals("MISSING_PERSON", result.path("rows").get(0).path("issues").get(1).path("code").asText());
+        assertTrue(result.path("rows").get(0).path("duplicateCount").isNull());
+        assertEquals("TV", result.path("rows").get(0).path("contentType").path("name").asText());
+
+        var anyRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "ANIME").param("keyword", "hero").param("ruleCodes", "MISSING_COVER,SAME_NAME_REVIEW");
+        var anyResult = json.readTree(mvc.perform(anyRequest).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(3, anyResult.path("total").asInt());
+        assertEquals(result.path("summary"), anyResult.path("summary"));
+        assertEquals(2, anyResult.path("rows").get(0).path("targetId").asInt());
+        assertEquals(2, anyResult.path("rows").get(0).path("duplicateCount").asInt());
+
+        var pageRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "BOOK").param("keyword", "title").param("ruleCodes", "SAME_NAME_REVIEW").param("pageSize", "1");
+        var page = json.readTree(mvc.perform(pageRequest).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(2, page.path("pages").asInt());
+        assertEquals(3, page.path("summary").path("scopeTotal").asInt());
+        assertEquals(2, page.path("rows").get(0).path("targetId").asInt());
+        assertEquals(2, page.path("rows").get(0).path("duplicateCount").asInt());
+        assertEquals(1, page.path("rows").get(0).path("issues").size());
+        var beyond = json.readTree(mvc.perform(pageRequest.param("pageNum", "3")).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(2, beyond.path("total").asInt());
+        assertTrue(beyond.path("rows").isEmpty());
+
+        var emptyRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "BOOK").param("keyword", "Hero").param("ruleCodes", "SAME_NAME_REVIEW");
+        var empty = json.readTree(mvc.perform(emptyRequest).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(1, empty.path("summary").path("scopeTotal").asInt());
+        assertEquals(0, empty.path("total").asInt());
+        assertEquals(0, empty.path("pages").asInt());
+        assertTrue(empty.path("rows").isEmpty());
+        var invalidRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "BOOK").param("ruleCodes", "UNKNOWN");
+        assertEquals(500, json.readTree(mvc.perform(invalidRequest).andReturn().getResponse().getContentAsByteArray()).path("code").asInt());
+        assertEquals(4L, jdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+
+        var unavailable = mock(javax.sql.DataSource.class);
+        when(unavailable.getConnection()).thenThrow(new java.sql.SQLException("模拟读取失败"));
+        var failedMvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(
+                        new org.springframework.jdbc.core.JdbcTemplate(unavailable))))
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        var failure = json.readTree(failedMvc.perform(request).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(500, failure.path("code").asInt());
+        assertFalse(failure.hasNonNull("data"));
+    }
+
+    @Test
     void previewReportsCellErrorAndCacheOutageWithoutCreatingWorks() {
         seedBookCatalogs();
         var json = tools.jackson.databind.json.JsonMapper.builder().build();

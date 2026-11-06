@@ -72,6 +72,9 @@ class SecurityConfigTests {
     @MockitoBean
     private org.killze.acgbox.service.impl.DataTransferServiceImpl dataTransferService;
 
+    @MockitoBean
+    private org.killze.acgbox.service.impl.DataQualityServiceImpl dataQualityService;
+
     private UserAccount userAccount;
 
     private MockMvc mockMvc;
@@ -393,8 +396,23 @@ class SecurityConfigTests {
     @EnableWebMvc
     @EnableWebSecurity
     @Import({SecurityConfig.class, JwtConfig.class, TestController.class,
-            org.killze.acgbox.controller.ImageUploadController.class, org.killze.acgbox.controller.DataTransferController.class})
+            org.killze.acgbox.controller.ImageUploadController.class, org.killze.acgbox.controller.DataTransferController.class,
+            org.killze.acgbox.controller.DataQualityController.class})
     static class TestConfig {
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR", "USER", "ANONYMOUS"})
+    void dataQualityUsesExistingContentPermissions(String role) throws Exception {
+        var request = get("/data-quality/page").param("targetType", "ANIME").param("ruleCodes", "MISSING_COVER");
+        if (!role.equals("ANONYMOUS")) request.header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken(role));
+        mockMvc.perform(request).andExpect(switch (role) {
+            case "USER" -> status().isForbidden();
+            case "ANONYMOUS" -> status().isUnauthorized();
+            default -> status().isOk();
+        });
+        if (role.equals("USER") || role.equals("ANONYMOUS")) verifyNoInteractions(dataQualityService);
+        else verify(dataQualityService).pageDataQuality(any());
     }
 
     @ParameterizedTest
