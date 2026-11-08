@@ -1,0 +1,89 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: acgbox_ci
+          POSTGRES_USER: acgbox_ci
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U acgbox_ci -d acgbox_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      ACGBOX_DB_URL: jdbc:postgresql://127.0.0.1:5432/acgbox_ci
+      ACGBOX_DB_USERNAME: acgbox_ci
+      ACGBOX_DB_PASSWORD: ci-only-password
+      ACGBOX_JWT_SECRET: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      ACGBOX_ACCOUNT_EMAIL_ENABLED: 'false'
+      ACGBOX_COS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+      - name: 初始化临时测试数据库
+        env:
+          PGPASSWORD: ci-only-password
+          PGCLIENTENCODING: UTF8
+        run: psql -h 127.0.0.1 -U acgbox_ci -d acgbox_ci -v ON_ERROR_STOP=1 -f sql/public.sql
+      - name: 测试并打包
+        run: mvn --batch-mode --no-transfer-progress verify -pl acgbox-app -am
+      - name: 发布到服务器
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          if [[ "$latest" != "$GITHUB_SHA" ]]; then
+            echo 'main 已有新提交，本次旧版本不发布。'
+            exit 0
+          fi
+          : "${DEPLOY_HOST:?请配置 DEPLOY_HOST}"
+          : "${DEPLOY_USER:?请配置 DEPLOY_USER}"
+          : "${DEPLOY_SSH_KEY:?请配置 DEPLOY_SSH_KEY}"
+          : "${DEPLOY_KNOWN_HOSTS:?请配置 DEPLOY_KNOWN_HOSTS}"
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
+          trap 'rm -f ~/.ssh/deploy_key' EXIT
+          port=${DEPLOY_PORT:-22}
+          opts=(-i ~/.ssh/deploy_key -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          remote="$DEPLOY_USER@$DEPLOY_HOST"
+          dest="/var/lib/acgbox-deploy/incoming/backend/$GITHUB_SHA"
+          ssh "${opts[@]}" "$remote" "mkdir -p '$dest'"
+          scp -i ~/.ssh/deploy_key -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar "$remote:$dest/"
+          ssh "${opts[@]}" "$remote" "sudo -n /usr/local/sbin/acgbox-deploy backend '$GITHUB_SHA'"

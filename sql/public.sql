@@ -272,7 +272,7 @@ CREATE TABLE "public"."anime" (
   "name" varchar(200) COLLATE "pg_catalog"."default" NOT NULL,
   "episode_count" int4,
   "broadcast_type_id" int4 NOT NULL,
-  "adaptation_type_id" intype_id" int4 NOT NULL,
+  "adaptation_type_id" int4 NOT NULL,
   "air_date" date,
   "cover_image_url" varchar(500) COLLATE "pg_catalog"."default",
   "status" int4 NOT NULL,
