@@ -1066,6 +1066,10 @@ class SortOrderMapperTests {
                 INSERT INTO person_relation (target_type,target_id,person_id,role)
                 VALUES ('BOOK',1,1,'作者'),('ANIME',2,1,'导演'),('ANIME',2,1,'脚本')
                 """);
+        jdbc.update("INSERT INTO company_relation (target_type,target_id,company_id) VALUES ('BOOK',1,1),('ANIME',2,1),('ANIME',3,1)");
+        jdbc.update("INSERT INTO tag_relation (target_type,target_id,tag_id) VALUES ('BOOK',1,1),('ANIME',2,1)");
+        jdbc.update("UPDATE anime SET air_date='2026-01-01' WHERE id IN (2,3)");
+        jdbc.update("UPDATE book SET publish_date='2025-12-31' WHERE id=1");
 
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
                 new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(jdbc)))
@@ -1094,6 +1098,31 @@ class SortOrderMapperTests {
         assertEquals(result.path("summary"), anyResult.path("summary"));
         assertEquals(2, anyResult.path("rows").get(0).path("targetId").asInt());
         assertEquals(2, anyResult.path("rows").get(0).path("duplicateCount").asInt());
+
+        var extraRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "ANIME").param("ruleCodes", "MISSING_COMPANY,MISSING_TAG,MISSING_DATE");
+        var extra = json.readTree(mvc.perform(extraRequest).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(2, extra.path("total").asInt());
+        assertEquals(result.path("summary"), extra.path("summary"));
+        assertEquals(1, extra.path("rows").get(0).path("targetId").asInt());
+        assertEquals(json.readTree("""
+                [{"code":"MISSING_COMPANY","message":"缺公司"},{"code":"MISSING_TAG","message":"缺标签"},{"code":"MISSING_DATE","message":"缺日期"}]
+                """), extra.path("rows").get(0).path("issues"));
+        assertEquals(3, extra.path("rows").get(1).path("targetId").asInt());
+        assertEquals(1, extra.path("rows").get(1).path("issues").size());
+        assertEquals("MISSING_TAG", extra.path("rows").get(1).path("issues").get(0).path("code").asText());
+        var extraAll = json.readTree(mvc.perform(extraRequest.param("matchMode", "ALL")).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(1, extraAll.path("total").asInt());
+        var bookExtra = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "BOOK").param("keyword", "title").param("matchMode", "ALL")
+                .param("ruleCodes", "MISSING_COMPANY,MISSING_TAG,MISSING_DATE");
+        var bookExtraResult = json.readTree(mvc.perform(bookExtra).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(2, bookExtraResult.path("total").asInt());
+        assertEquals(2, bookExtraResult.path("rows").get(1).path("targetId").asInt());
+        var extraCounts = extra.path("summary").path("ruleCounts");
+        assertEquals(1, extraCounts.path("MISSING_COMPANY").asInt());
+        assertEquals(2, extraCounts.path("MISSING_TAG").asInt());
+        assertEquals(1, extraCounts.path("MISSING_DATE").asInt());
 
         var pageRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
                 .param("targetType", "BOOK").param("keyword", "title").param("ruleCodes", "SAME_NAME_REVIEW").param("pageSize", "1");

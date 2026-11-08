@@ -27,7 +27,7 @@ public class DataQualityServiceImpl {
     private static final String SQL = """
             WITH named AS (
                 SELECT w.id, w.name, w.cover_image_url, w.description, w.updated_at, w.region_id,
-                       w.%1$s AS type_id,
+                       w.%1$s AS type_id, w.%5$s AS work_date,
                        COUNT(*) OVER (PARTITION BY %2$s
                            translate(btrim(w.name, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') COLLATE "C") AS duplicate_count
                 FROM %3$s w
@@ -38,19 +38,29 @@ public class DataQualityServiceImpl {
                        CASE WHEN NOT EXISTS (
                            SELECT 1 FROM person_relation pr WHERE pr.target_type = ? AND pr.target_id = named.id
                        ) THEN 1 ELSE 0 END AS missing_person,
+                       CASE WHEN NOT EXISTS (
+                           SELECT 1 FROM company_relation cr WHERE cr.target_type = ? AND cr.target_id = named.id
+                       ) THEN 1 ELSE 0 END AS missing_company,
+                       CASE WHEN NOT EXISTS (
+                           SELECT 1 FROM tag_relation tr WHERE tr.target_type = ? AND tr.target_id = named.id
+                       ) THEN 1 ELSE 0 END AS missing_tag,
+                       CASE WHEN work_date IS NULL THEN 1 ELSE 0 END AS missing_date,
                        CASE WHEN duplicate_count > 1 THEN 1 ELSE 0 END AS same_name_review
                 FROM named
                 WHERE strpos(translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),
                              translate(btrim(?, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')) > 0
             ), checked AS (
                 SELECT scoped.*, missing_cover * ? + missing_description * ? + missing_person * ?
-                    + same_name_review * ? AS selected_hits
+                    + missing_company * ? + missing_tag * ? + missing_date * ? + same_name_review * ? AS selected_hits
                 FROM scoped
             ), summary AS (
                 SELECT COUNT(*) AS scope_total,
                        COALESCE(SUM(missing_cover), 0) AS count_cover,
                        COALESCE(SUM(missing_description), 0) AS count_description,
                        COALESCE(SUM(missing_person), 0) AS count_person,
+                       COALESCE(SUM(missing_company), 0) AS count_company,
+                       COALESCE(SUM(missing_tag), 0) AS count_tag,
+                       COALESCE(SUM(missing_date), 0) AS count_date,
                        COALESCE(SUM(same_name_review), 0) AS count_same_name,
                        COALESCE(SUM(CASE WHEN selected_hits >= ? THEN 1 ELSE 0 END), 0) AS total
                 FROM checked
@@ -70,6 +80,9 @@ public class DataQualityServiceImpl {
         MISSING_COVER("缺封面", "missing_cover", "count_cover"),
         MISSING_DESCRIPTION("缺简介", "missing_description", "count_description"),
         MISSING_PERSON("缺创作人员", "missing_person", "count_person"),
+        MISSING_COMPANY("缺公司", "missing_company", "count_company"),
+        MISSING_TAG("缺标签", "missing_tag", "count_tag"),
+        MISSING_DATE("缺日期", "missing_date", "count_date"),
         SAME_NAME_REVIEW("同名待核对", "same_name_review", "count_same_name");
 
         final String message;
@@ -110,15 +123,18 @@ public class DataQualityServiceImpl {
         if (pageSize == null || pageSize < 1 || pageSize > 100) throw new BusinessException("pageSize 必须在 1 到 100 之间");
         long offset = pageNum - 1 > Long.MAX_VALUE / pageSize ? Long.MAX_VALUE : (pageNum - 1) * pageSize;
         int minimum = "ALL".equals(mode) ? rules.size() : 1;
-        String sql = anime ? SQL.formatted("broadcast_type_id", "", "anime", "broadcast_type")
-                : SQL.formatted("book_type_id", "w.book_type_id, ", "book", "book_type");
+        String sql = anime ? SQL.formatted("broadcast_type_id", "", "anime", "broadcast_type", "air_date")
+                : SQL.formatted("book_type_id", "w.book_type_id, ", "book", "book_type", "publish_date");
         // 单条查询共享同一读取视图；汇总行保证空结果和超页仍有统计。
         ResultSetExtractor<DataQualityPageVO> result = rs -> assemble(rs, target, rules, pageNum, pageSize);
         return jdbc.query(sql, result,
-                WHITESPACE, WHITESPACE, WHITESPACE, target, dto.getKeyword() == null ? "" : dto.getKeyword(), WHITESPACE,
+                WHITESPACE, WHITESPACE, WHITESPACE, target, target, target, dto.getKeyword() == null ? "" : dto.getKeyword(), WHITESPACE,
                 rules.contains(Rule.MISSING_COVER) ? 1 : 0,
                 rules.contains(Rule.MISSING_DESCRIPTION) ? 1 : 0,
                 rules.contains(Rule.MISSING_PERSON) ? 1 : 0,
+                rules.contains(Rule.MISSING_COMPANY) ? 1 : 0,
+                rules.contains(Rule.MISSING_TAG) ? 1 : 0,
+                rules.contains(Rule.MISSING_DATE) ? 1 : 0,
                 rules.contains(Rule.SAME_NAME_REVIEW) ? 1 : 0,
                 minimum, minimum, pageSize, offset);
     }
