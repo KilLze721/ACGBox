@@ -86,8 +86,12 @@ jobs:
           dest="/var/lib/acgbox-deploy/incoming/backend/$GITHUB_SHA"
           echo '阶段 2/4：验证 SSH 连接并创建上传目录。'
           timeout 30s ssh "${opts[@]}" "$remote" "mkdir -p '$dest'"
-          echo '阶段 3/4：上传后端 JAR，最长等待 10 分钟。'
-          timeout 600s rsync -az --info=progress2 --timeout=60 \
+          echo '确认部署账号可读取现有 JAR，供增量比较使用。'
+          timeout 30s ssh "${opts[@]}" "$remote" 'test -r /opt/acgbox/acgbox-app-0.0.1-SNAPSHOT.jar'
+          echo '阶段 3/4：以服务器现有 JAR 为基准上传差异，保留中断进度，最长等待 10 分钟。'
+          timeout 600s rsync -az --checksum --no-whole-file \
+            --copy-dest=/opt/acgbox --partial-dir=.rsync-partial \
+            --info=progress2,stats2 --timeout=60 \
             -e "ssh -i $HOME/.ssh/deploy_key -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=3" \
             acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar "$remote:$dest/"
           echo '阶段 4/4：执行服务器发布和启动探测。'
