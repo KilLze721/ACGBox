@@ -65,7 +65,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          latest=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
+          echo '阶段 1/4：检查 main 的最新提交。'
+          latest=$(timeout 30s gh api "repos/$GITHUB_REPOSITORY/commits/main" --jq .sha)
           if [[ "$latest" != "$GITHUB_SHA" ]]; then
             echo 'main 已有新提交，本次旧版本不发布。'
             exit 0
@@ -80,10 +81,15 @@ jobs:
           chmod 600 ~/.ssh/deploy_key ~/.ssh/known_hosts
           trap 'rm -f ~/.ssh/deploy_key' EXIT
           port=${DEPLOY_PORT:-22}
-          opts=(-i ~/.ssh/deploy_key -p "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes)
+          opts=(-i ~/.ssh/deploy_key -p "$port" -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
           remote="$DEPLOY_USER@$DEPLOY_HOST"
           dest="/var/lib/acgbox-deploy/incoming/backend/$GITHUB_SHA"
-          ssh "${opts[@]}" "$remote" "mkdir -p '$dest'"
-          scp -i ~/.ssh/deploy_key -P "$port" -o BatchMode=yes -o StrictHostKeyChecking=yes \
+          echo '阶段 2/4：验证 SSH 连接并创建上传目录。'
+          timeout 30s ssh "${opts[@]}" "$remote" "mkdir -p '$dest'"
+          echo '阶段 3/4：上传后端 JAR，最长等待 10 分钟。'
+          timeout 600s rsync -az --info=progress2 --timeout=60 \
+            -e "ssh -i $HOME/.ssh/deploy_key -p $port -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 -o ConnectionAttempts=1 -o ServerAliveInterval=15 -o ServerAliveCountMax=3" \
             acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar "$remote:$dest/"
+          echo '阶段 4/4：执行服务器发布和启动探测。'
           ssh "${opts[@]}" "$remote" "sudo -n /usr/local/sbin/acgbox-deploy backend '$GITHUB_SHA'"
+          echo '后端发布命令已成功完成。'
