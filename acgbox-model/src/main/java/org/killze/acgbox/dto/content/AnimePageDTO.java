@@ -88,12 +88,12 @@ public class AnimePageDTO extends PageDTO {
     private BigDecimal ratingMax;
 
     /**
-     * 排序字段，支持 BROADCAST_DATE 和 PERSONAL_RATING
+     * 排序字段，支持 BROADCAST_DATE 和 PERSONAL_RATING，另一项作为次排序。
      */
     private String sortBy;
 
     /**
-     * 排序方向，支持 ASC 和 DESC
+     * 排序方向，支持 ASC 和 DESC，主排序和次排序使用相同方向，空值靠后。
      */
     private String sortDirection;
 

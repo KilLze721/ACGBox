@@ -341,9 +341,67 @@ class SortOrderMapperTests {
         assertEquals(List.of(2L, 1L, 4L), animeIds(queryAnime(dto)));
         dto.setPersonId(null);
         dto.setSeriesId(null);
-        assertEquals(List.of(2L, 5L, 1L, 4L, 3L), animeIds(queryAnime(dto)));
+        assertEquals(List.of(2L, 5L, 1L, 3L, 4L), animeIds(queryAnime(dto)));
         dto.setSortDirection("ASC");
-        assertEquals(List.of(5L, 1L, 2L, 4L, 3L), animeIds(queryAnime(dto)));
+        assertEquals(List.of(5L, 1L, 2L, 3L, 4L), animeIds(queryAnime(dto)));
+    }
+
+    @Test
+    void animeAndBookPagesUseDateAndRatingAsMutualSecondarySorts() {
+        seedBookCatalogs();
+        List<LocalDate> dates = java.util.Arrays.asList(
+                LocalDate.of(2024, 1, 1), LocalDate.of(2024, 1, 1), LocalDate.of(2023, 1, 1),
+                null, LocalDate.of(2024, 1, 1), null, LocalDate.of(2024, 1, 1),
+                LocalDate.of(2025, 1, 1), LocalDate.of(2025, 1, 1));
+        List<Integer> scores = java.util.Arrays.asList(8, 9, 8, 8, null, null, 8, 0, 0);
+        for (int index = 0; index < dates.size(); index++) {
+            Long id = (long) index + 1;
+            session.getMapper(AnimeMapper.class).insert(Anime.builder().id(id).name("排序动画" + id)
+                    .airDate(dates.get(index)).build());
+            session.getMapper(BookMapper.class).insert(Book.builder().id(id).name("排序书籍" + id)
+                    .bookTypeId(1L).adaptationTypeId(1L).regionId(1L).status(0L).publishDate(dates.get(index))
+                    .createdAt(LocalDateTime.now()).updatedAt(LocalDateTime.now()).build());
+            if (scores.get(index) != null) {
+                for (String targetType : List.of("ANIME", "BOOK")) {
+                    session.getMapper(PersonalRatingMapper.class).insert(PersonalRating.builder()
+                            .targetType(targetType).targetId(id)
+                            .score(java.math.BigDecimal.valueOf(scores.get(index))).build());
+                }
+            }
+        }
+        List<List<Long>> expectedOrders = List.of(
+                List.of(3L, 7L, 1L, 2L, 5L, 9L, 8L, 4L, 6L),
+                List.of(9L, 8L, 2L, 7L, 1L, 5L, 3L, 4L, 6L),
+                List.of(9L, 8L, 3L, 7L, 1L, 4L, 2L, 5L, 6L),
+                List.of(2L, 7L, 1L, 3L, 4L, 9L, 8L, 5L, 6L));
+        BookServiceImpl service = bookService();
+        int orderIndex = 0;
+        for (boolean byRating : List.of(false, true)) {
+            for (String direction : List.of("ASC", "DESC")) {
+                AnimePageDTO animeQuery = new AnimePageDTO();
+                animeQuery.setSortBy(byRating ? "PERSONAL_RATING" : "BROADCAST_DATE");
+                animeQuery.setSortDirection(direction);
+                BookPageDTO bookQuery = new BookPageDTO();
+                bookQuery.setSortBy(byRating ? "PERSONAL_RATING" : "PUBLISH_DATE");
+                bookQuery.setSortDirection(direction);
+                List<Long> expected = expectedOrders.get(orderIndex++);
+                assertEquals(expected, animeIds(queryAnime(animeQuery)));
+                assertEquals(expected, bookIds(service.pageBook(bookQuery)));
+                animeQuery.setPageSize(3L);
+                bookQuery.setPageSize(3L);
+                for (long pageNum = 1; pageNum <= 3; pageNum++) {
+                    animeQuery.setPageNum(pageNum);
+                    bookQuery.setPageNum(pageNum);
+                    List<Long> pageIds = expected.subList((int) (pageNum - 1) * 3, (int) pageNum * 3);
+                    Page<Anime> animePage = queryAnime(animeQuery);
+                    var bookPage = service.pageBook(bookQuery);
+                    assertEquals(9L, animePage.getTotal());
+                    assertEquals(9L, bookPage.getTotal());
+                    assertEquals(pageIds, animeIds(animePage));
+                    assertEquals(pageIds, bookIds(bookPage));
+                }
+            }
+        }
     }
 
     private Page<Anime> queryAnime(AnimePageDTO dto) {

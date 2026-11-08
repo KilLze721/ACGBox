@@ -61,6 +61,15 @@
             <when test="pageDTO.sortDirection == 'ASC'">ASC</when>
             <otherwise>DESC</otherwise>
         </choose>
+        NULLS LAST,
+        <choose>
+            <when test="pageDTO.sortBy == 'PERSONAL_RATING'">b.publish_date</when>
+            <otherwise>pr.score</otherwise>
+        </choose>
+        <choose>
+            <when test="pageDTO.sortDirection == 'ASC'">ASC</when>
+            <otherwise>DESC</otherwise>
+        </choose>
         NULLS LAST, b.id DESC
     </select>
 </mapper>

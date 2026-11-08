@@ -86,12 +86,12 @@ public class BookPageDTO extends PageDTO {
     private BigDecimal ratingMax;
 
     /**
-     * PUBLISH_DATE 或 PERSONAL_RATING，默认 PUBLISH_DATE。
+     * PUBLISH_DATE 或 PERSONAL_RATING，默认 PUBLISH_DATE，另一项作为次排序。
      */
     private String sortBy;
 
     /**
-     * ASC 或 DESC，默认 DESC。
+     * ASC 或 DESC，默认 DESC，主排序和次排序使用相同方向，空值靠后。
      */
     private String sortDirection;
 }
