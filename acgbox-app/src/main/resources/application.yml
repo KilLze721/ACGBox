@@ -116,8 +116,8 @@ jwt:
   issuer: acgbox-admin
   # 令牌使用目标标识，对应 JWT 的 aud 声明，不是账号角色，也不要求是网址。
   audience: acgbox-admin
-  # 新签发令牌的有效期，单位秒，86400 表示 24 小时；修改此值不改变已签发令牌。
-  expiration: 86400
+  # 新签发令牌的有效期，单位秒，259200 表示 3 天；修改此值不改变已签发令牌。
+  expiration: 259200
 
 # MyBatis-Plus 数据访问配置。
 mybatis-plus:
