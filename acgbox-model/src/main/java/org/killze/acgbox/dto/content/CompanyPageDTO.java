@@ -15,4 +15,9 @@ public class CompanyPageDTO extends PageDTO {
      * 公司名称
      */
     private String name;
+
+    /**
+     * 传 NAME_INITIAL 按名称首字母排序，未传时沿用原排序。
+     */
+    private String sortBy;
 }

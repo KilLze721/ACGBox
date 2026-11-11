@@ -139,7 +139,10 @@ public class SeriesServiceImpl implements SeriesService {
         );
         wrapper.orderByDesc(Series::getUpdatedAt);
         // 分页查询
-        Page<Series> result = seriesMapper.selectPage(page, wrapper);
+        Page<Series> result = "NAME_INITIAL".equals(pageDTO.getSortBy())
+                ? CatalogNameInitialPage.selectPage(seriesMapper, page, wrapper.orderByDesc(Series::getId),
+                        Series::getId, Series::getName)
+                : seriesMapper.selectPage(page, wrapper);
         // 转换成 VO
         List<SeriesVO> rows = result.getRecords().stream().map(this::buildSeriesVO).toList();
         // 返回结果

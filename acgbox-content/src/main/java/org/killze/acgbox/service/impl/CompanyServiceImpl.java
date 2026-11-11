@@ -139,7 +139,10 @@ public class CompanyServiceImpl implements CompanyService {
         );
         wrapper.orderByDesc(Company::getUpdatedAt);
         // 分页查询
-        Page<Company> result = companyMapper.selectPage(page, wrapper);
+        Page<Company> result = "NAME_INITIAL".equals(pageDTO.getSortBy())
+                ? CatalogNameInitialPage.selectPage(companyMapper, page, wrapper.orderByDesc(Company::getId),
+                        Company::getId, Company::getName)
+                : companyMapper.selectPage(page, wrapper);
         // 返回结果
         List<CompanyVO> rows = result.getRecords().stream().map(this::buildCompanyVO).toList();
         return PageVO.<CompanyVO>builder()

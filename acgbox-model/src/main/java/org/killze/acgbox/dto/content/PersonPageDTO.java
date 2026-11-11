@@ -15,4 +15,9 @@ public class PersonPageDTO extends PageDTO {
      * 人物姓名，忽略字母大小写进行模糊查询。
      */
     private String name;
+
+    /**
+     * 传 NAME_INITIAL 按名称首字母排序，未传时沿用原排序。
+     */
+    private String sortBy;
 }

@@ -16,6 +16,8 @@ import org.apache.ibatis.transaction.jdbc.JdbcTransactionFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.killze.acgbox.entity.content.AdaptationType;
 import org.killze.acgbox.entity.content.Alias;
 import org.killze.acgbox.entity.content.CompanyRelation;
@@ -1221,24 +1223,31 @@ class SortOrderMapperTests {
         assertFalse(failure.hasNonNull("data"));
     }
 
-    @Test
-    void personQualityReturnsIndividualProfilesWithTheFullDuplicateGroupSize() throws Exception {
+    @ParameterizedTest
+    @CsvSource({"PERSON,person", "COMPANY,company", "SERIES,series"})
+    void catalogQualityReturnsIndividualProfilesWithTheFullDuplicateGroupSize(String targetType, String table) throws Exception {
         installDataQualityTextFunctions();
         var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
         jdbc.update("""
-                INSERT INTO person (id,name,description,created_at,updated_at)
+                INSERT INTO %s (id,name,description,created_at,updated_at)
                 VALUES (1,?,NULL,'2026-11-11','2026-11-11 12:00:00.000'),
                        (2,'ALICE','摄影','2026-11-11','2026-11-11 12:00:00.000'),
                        (3,'alice','编剧','2026-11-10','2026-11-10 12:00:00.000'),
                        (4,'Alice!',NULL,'2026-11-11','2026-11-11 13:00:00.000'),
                        (5,'其他人物',NULL,'2026-11-11','2026-11-11 13:00:00.000')
-                """, "\t Alice " + (char) 0x3000);
+                """.formatted(table), "\t Alice " + (char) 0x3000);
+        for (String other : List.of("person", "company", "series")) {
+            if (!other.equals(table)) {
+                jdbc.update("INSERT INTO " + other + " (id,name,created_at,updated_at) VALUES (2,'ALICE',?,?)",
+                        "2026-11-11", "2026-11-11 12:00:00.000");
+            }
+        }
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
                 new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(jdbc)))
                 .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
         var json = tools.jackson.databind.json.JsonMapper.builder().build();
         var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
-                .param("targetType", "PERSON").param("ruleCodes", "SAME_NAME_REVIEW")
+                .param("targetType", targetType).param("ruleCodes", "SAME_NAME_REVIEW")
                 .param("keyword", "  aLiCe\t").param("pageSize", "2");
         var response = json.readTree(mvc.perform(request).andReturn().getResponse().getContentAsByteArray());
         assertEquals(200, response.path("code").asInt(), response.toString());
@@ -1249,7 +1258,7 @@ class SortOrderMapperTests {
         assertEquals(json.readTree("{\"SAME_NAME_REVIEW\":3}"), result.path("summary").path("ruleCounts"));
         var rows = result.path("rows");
         assertEquals(2, rows.size());
-        assertEquals("PERSON", rows.get(0).path("targetType").asText());
+        assertEquals(targetType, rows.get(0).path("targetType").asText());
         assertEquals(2L, rows.get(0).path("targetId").asLong());
         assertEquals("ALICE", rows.get(0).path("name").asText());
         assertEquals("摄影", rows.get(0).path("description").asText());
@@ -1268,10 +1277,60 @@ class SortOrderMapperTests {
         assertEquals(3L, next.path("rows").get(0).path("duplicateCount").asLong());
 
         var invalid = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
-                .param("targetType", "PERSON").param("ruleCodes", "SAME_NAME_REVIEW,MISSING_COVER");
+                .param("targetType", targetType).param("ruleCodes", "SAME_NAME_REVIEW,MISSING_COVER");
         var error = json.readTree(mvc.perform(invalid).andReturn().getResponse().getContentAsByteArray());
         assertEquals(500, error.path("code").asInt());
-        assertEquals("PERSON 仅支持 SAME_NAME_REVIEW 检查规则", error.path("message").asText());
+        assertEquals(targetType + " 仅支持 SAME_NAME_REVIEW 检查规则", error.path("message").asText());
+    }
+
+    @Test
+    void catalogPagesSortByChineseAndEnglishInitialBeforePagination() throws Exception {
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        for (String table : List.of("company", "person", "series")) {
+            jdbc.update("""
+                    INSERT INTO %s (id,name,created_at,updated_at)
+                    VALUES (1,'zeta','2026-11-09T08:00:00','2026-11-11T12:00:00'),
+                           (2,'  北京','2026-11-09T08:00:00','2026-11-11T13:00:00'),
+                           (3,'a studio','2026-11-09T08:00:00','2026-11-10T12:00:00'),
+                           (4,'白马','2026-11-09T08:00:00','2026-11-11T13:00:00'),
+                           (5,'8号','2026-11-09T08:00:00','2026-11-11T15:00:00'),
+                           (6,'★','2026-11-09T08:00:00','2026-11-11T14:00:00'),
+                           (7,'Beta','2026-11-09T08:00:00','2026-11-09T12:00:00')
+                    """.formatted(table));
+        }
+        var companies = new org.killze.acgbox.controller.CompanyController();
+        var companyService = new CompanyServiceImpl();
+        ReflectionTestUtils.setField(companyService, "companyMapper", session.getMapper(CompanyMapper.class));
+        ReflectionTestUtils.setField(companies, "companyService", companyService);
+        var persons = new org.killze.acgbox.controller.PersonController();
+        ReflectionTestUtils.setField(persons, "personService", personService());
+        var series = new org.killze.acgbox.controller.SeriesController();
+        var seriesService = new SeriesServiceImpl();
+        ReflectionTestUtils.setField(seriesService, "seriesMapper", session.getMapper(SeriesMapper.class));
+        ReflectionTestUtils.setField(series, "seriesService", seriesService);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(companies, persons, series).build();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        for (String path : List.of("/companies/page", "/persons/page", "/series/page")) {
+            var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path);
+            var defaultResult = json.readTree(mvc.perform(request.param("pageSize", "2")).andReturn().getResponse().getContentAsByteArray());
+            assertEquals(200, defaultResult.path("code").asInt(), defaultResult.toString());
+            assertEquals(5L, defaultResult.path("data").path("rows").get(0).path("id").asLong());
+            assertEquals(6L, defaultResult.path("data").path("rows").get(1).path("id").asLong());
+
+            var expectedPages = List.of(List.of(3L, 4L, 2L), List.of(7L, 1L, 5L), List.of(6L));
+            for (int index = 0; index < expectedPages.size(); index++) {
+                var sorted = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path)
+                        .param("sortBy", "NAME_INITIAL").param("pageSize", "3").param("pageNum", String.valueOf(index + 1));
+                var response = json.readTree(mvc.perform(sorted).andReturn().getResponse().getContentAsByteArray());
+                assertEquals(200, response.path("code").asInt(), response.toString());
+                var data = response.path("data");
+                assertEquals(7L, data.path("total").asLong());
+                assertEquals(3L, data.path("pages").asLong());
+                var ids = new java.util.ArrayList<Long>();
+                for (var row : data.path("rows")) ids.add(row.path("id").asLong());
+                assertEquals(expectedPages.get(index), ids);
+            }
+        }
     }
 
     @Test

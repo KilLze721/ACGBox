@@ -16,6 +16,12 @@
     <name>acgbox-content</name>
 
     <dependencies>
+        <!-- 公司、人物和系列名称首字母排序使用单字拼音。 -->
+        <dependency>
+            <groupId>com.belerweb</groupId>
+            <artifactId>pinyin4j</artifactId>
+            <version>2.5.0</version>
+        </dependency>
         <!-- 作品表格处理；Redis 复用应用已有的连接配置。 -->
         <dependency>
             <groupId>org.apache.poi</groupId>

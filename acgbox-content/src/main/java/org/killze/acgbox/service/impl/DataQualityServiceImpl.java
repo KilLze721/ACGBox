@@ -76,12 +76,13 @@ public class DataQualityServiceImpl {
             ORDER BY paged.updated_at DESC, paged.id DESC
             """;
 
+    // 公司和系列复用人物的同名检查，只替换白名单内的表名。
     private static final String PERSON_SQL = """
             WITH named AS (
                 SELECT id, name, description, updated_at,
                        COUNT(*) OVER (PARTITION BY
                            translate(btrim(name, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') COLLATE "C") AS duplicate_count
-                FROM person
+                FROM %s
             ), scoped AS (
                 SELECT *
                 FROM named
@@ -129,8 +130,15 @@ public class DataQualityServiceImpl {
     public DataQualityPageVO pageDataQuality(DataQualityPageDTO dto) {
         String target = dto.getTargetType();
         boolean anime = "ANIME".equals(target);
-        boolean person = "PERSON".equals(target);
-        if (!anime && !person && !"BOOK".equals(target)) throw new BusinessException("targetType 必须为 ANIME、BOOK 或 PERSON");
+        String catalogTable = switch (target == null ? "" : target) {
+            case "PERSON" -> "person";
+            case "COMPANY" -> "company";
+            case "SERIES" -> "series";
+            default -> null;
+        };
+        if (!anime && catalogTable == null && !"BOOK".equals(target)) {
+            throw new BusinessException("targetType 必须为 ANIME、BOOK、PERSON、COMPANY 或 SERIES");
+        }
         String mode = dto.getMatchMode();
         if (!"ANY".equals(mode) && !"ALL".equals(mode)) throw new BusinessException("matchMode 必须为 ANY 或 ALL");
         if (dto.getRuleCodes() == null || dto.getRuleCodes().isEmpty()) throw new BusinessException("至少选择一项检查规则");
@@ -142,8 +150,8 @@ public class DataQualityServiceImpl {
                 throw new BusinessException("ruleCodes 包含未知检查规则");
             }
         }
-        if (person && !rules.equals(EnumSet.of(Rule.SAME_NAME_REVIEW))) {
-            throw new BusinessException("PERSON 仅支持 SAME_NAME_REVIEW 检查规则");
+        if (catalogTable != null && !rules.equals(EnumSet.of(Rule.SAME_NAME_REVIEW))) {
+            throw new BusinessException(target + " 仅支持 SAME_NAME_REVIEW 检查规则");
         }
         Long pageNum = dto.getPageNum();
         Long pageSize = dto.getPageSize();
@@ -153,8 +161,8 @@ public class DataQualityServiceImpl {
         String keyword = dto.getKeyword() == null ? "" : dto.getKeyword();
         // 单条查询共享同一读取视图；汇总行保证空结果和超页仍有统计。
         ResultSetExtractor<DataQualityPageVO> result = rs -> assemble(rs, target, rules, pageNum, pageSize);
-        if (person) {
-            return jdbc.query(PERSON_SQL, result, WHITESPACE, keyword, WHITESPACE, pageSize, offset);
+        if (catalogTable != null) {
+            return jdbc.query(PERSON_SQL.formatted(catalogTable), result, WHITESPACE, keyword, WHITESPACE, pageSize, offset);
         }
         int minimum = "ALL".equals(mode) ? rules.size() : 1;
         String sql = anime ? SQL.formatted("broadcast_type_id", "", "anime", "broadcast_type", "air_date")
@@ -174,11 +182,11 @@ public class DataQualityServiceImpl {
     private DataQualityPageVO assemble(ResultSet rs, String target, EnumSet<Rule> rules,
                                        long pageNum, long pageSize) throws SQLException {
         if (!rs.next()) throw new IllegalStateException("数据质量检查未返回统计");
-        boolean person = "PERSON".equals(target);
+        boolean catalog = !"ANIME".equals(target) && !"BOOK".equals(target);
         long total = rs.getLong("total");
         var counts = new LinkedHashMap<String, Long>();
         for (Rule rule : Rule.values()) {
-            if (!person || rule == Rule.SAME_NAME_REVIEW) counts.put(rule.name(), rs.getLong(rule.countColumn));
+            if (!catalog || rule == Rule.SAME_NAME_REVIEW) counts.put(rule.name(), rs.getLong(rule.countColumn));
         }
         var summary = new Summary(rs.getLong("scope_total"), counts);
         var rows = new ArrayList<Row>();
@@ -191,19 +199,23 @@ public class DataQualityServiceImpl {
                 if (rs.getInt(rule.hitColumn) == 0) continue;
                 if (rule == Rule.SAME_NAME_REVIEW) {
                     duplicateCount = rs.getLong("duplicate_count");
-                    String message = person ? "同名人物共 " + duplicateCount + " 人，请人工核对"
-                            : "同类型同名作品共 " + duplicateCount + " 部，请人工核对";
+                    String message = switch (target) {
+                        case "PERSON" -> "同名人物共 " + duplicateCount + " 人，请人工核对";
+                        case "COMPANY" -> "同名公司共 " + duplicateCount + " 家，请人工核对";
+                        case "SERIES" -> "同名系列共 " + duplicateCount + " 个，请人工核对";
+                        default -> "同类型同名作品共 " + duplicateCount + " 部，请人工核对";
+                    };
                     issues.add(new Issue(rule.name(), message));
                 } else {
                     issues.add(new Issue(rule.name(), rule.message));
                 }
             }
             var updatedAt = rs.getTimestamp("updated_at");
-            rows.add(new Row(target, id, rs.getString("name"), person ? null : rs.getString("cover_image_url"),
-                    person ? null : reference(rs, "content_type_id", "content_type_name"),
-                    person ? null : reference(rs, "region_ref_id", "region_name"),
+            rows.add(new Row(target, id, rs.getString("name"), catalog ? null : rs.getString("cover_image_url"),
+                    catalog ? null : reference(rs, "content_type_id", "content_type_name"),
+                    catalog ? null : reference(rs, "region_ref_id", "region_name"),
                     updatedAt == null ? null : updatedAt.toLocalDateTime(), issues, duplicateCount,
-                    person ? rs.getString("description") : null));
+                    catalog ? rs.getString("description") : null));
         } while (rs.next());
         long pages = total == 0 ? 0 : 1 + (total - 1) / pageSize;
         return new DataQualityPageVO(pageNum, pageSize, total, pages, OffsetDateTime.now(ZoneId.of("Asia/Shanghai")), summary, rows);
