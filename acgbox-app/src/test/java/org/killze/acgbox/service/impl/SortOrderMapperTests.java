@@ -1286,7 +1286,7 @@ class SortOrderMapperTests {
     @Test
     void catalogPagesSortByChineseAndEnglishInitialBeforePagination() throws Exception {
         var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
-        for (String table : List.of("company", "person", "series")) {
+        for (String table : List.of("company", "person", "series", "tag")) {
             jdbc.update("""
                     INSERT INTO %s (id,name,created_at,updated_at)
                     VALUES (1,'zeta','2026-11-09T08:00:00','2026-11-11T12:00:00'),
@@ -1308,29 +1308,71 @@ class SortOrderMapperTests {
         var seriesService = new SeriesServiceImpl();
         ReflectionTestUtils.setField(seriesService, "seriesMapper", session.getMapper(SeriesMapper.class));
         ReflectionTestUtils.setField(series, "seriesService", seriesService);
-        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(companies, persons, series).build();
+        var tags = new org.killze.acgbox.controller.TagController();
+        var tagService = new TagServiceImpl();
+        ReflectionTestUtils.setField(tagService, "tagMapper", session.getMapper(TagMapper.class));
+        ReflectionTestUtils.setField(tags, "tagService", tagService);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(companies, persons, series, tags)
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
         var json = tools.jackson.databind.json.JsonMapper.builder().build();
-        for (String path : List.of("/companies/page", "/persons/page", "/series/page")) {
+        for (String path : List.of("/companies/page", "/persons/page", "/series/page", "/tags/page")) {
             var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path);
             var defaultResult = json.readTree(mvc.perform(request.param("pageSize", "2")).andReturn().getResponse().getContentAsByteArray());
             assertEquals(200, defaultResult.path("code").asInt(), defaultResult.toString());
-            assertEquals(5L, defaultResult.path("data").path("rows").get(0).path("id").asLong());
-            assertEquals(6L, defaultResult.path("data").path("rows").get(1).path("id").asLong());
+            if (!path.equals("/tags/page")) {
+                assertEquals(5L, defaultResult.path("data").path("rows").get(0).path("id").asLong());
+                assertEquals(6L, defaultResult.path("data").path("rows").get(1).path("id").asLong());
+            }
 
-            var expectedPages = List.of(List.of(3L, 4L, 2L), List.of(7L, 1L, 5L), List.of(6L));
-            for (int index = 0; index < expectedPages.size(); index++) {
-                var sorted = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path)
-                        .param("sortBy", "NAME_INITIAL").param("pageSize", "3").param("pageNum", String.valueOf(index + 1));
-                var response = json.readTree(mvc.perform(sorted).andReturn().getResponse().getContentAsByteArray());
-                assertEquals(200, response.path("code").asInt(), response.toString());
-                var data = response.path("data");
-                assertEquals(7L, data.path("total").asLong());
-                assertEquals(3L, data.path("pages").asLong());
-                var ids = new java.util.ArrayList<Long>();
-                for (var row : data.path("rows")) ids.add(row.path("id").asLong());
-                assertEquals(expectedPages.get(index), ids);
+            for (String direction : List.of("ASC", "DESC")) {
+                var expectedPages = direction.equals("ASC")
+                        ? List.of(List.of(3L, 4L, 2L), List.of(7L, 1L, 5L), List.of(6L))
+                        : List.of(List.of(1L, 4L, 2L), List.of(7L, 3L, 5L), List.of(6L));
+                for (int index = 0; index < expectedPages.size(); index++) {
+                    var sorted = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path)
+                            .param("sortBy", "NAME_INITIAL").param("pageSize", "3").param("pageNum", String.valueOf(index + 1));
+                    if (index != 0 || direction.equals("DESC")) sorted.param("sortDirection", direction);
+                    var response = json.readTree(mvc.perform(sorted).andReturn().getResponse().getContentAsByteArray());
+                    assertEquals(200, response.path("code").asInt(), response.toString());
+                    var data = response.path("data");
+                    assertEquals(7L, data.path("total").asLong());
+                    assertEquals(3L, data.path("pages").asLong());
+                    var ids = new java.util.ArrayList<Long>();
+                    for (var row : data.path("rows")) ids.add(row.path("id").asLong());
+                    assertEquals(expectedPages.get(index), ids);
+                }
             }
         }
+        var invalid = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/tags/page")
+                .param("sortBy", "NAME_INITIAL").param("sortDirection", "DOWN");
+        var error = json.readTree(mvc.perform(invalid).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(500, error.path("code").asInt());
+        assertEquals("sortDirection 仅支持 ASC 或 DESC", error.path("message").asText());
+    }
+
+    @Test
+    void animeAndBookPagesDisplayTagsByDescendingNameInitial() {
+        seedBookCatalogs();
+        session.getMapper(BroadcastTypeMapper.class).insert(BroadcastType.builder().name("TV").sortOrder(0L).build());
+        var tagMapper = session.getMapper(TagMapper.class);
+        tagMapper.insert(Tag.builder().id(2L).name("Zulu").build());
+        tagMapper.insert(Tag.builder().id(3L).name("alpha").build());
+        tagMapper.insert(Tag.builder().id(4L).name("8号").build());
+
+        var animeService = animeRatingService();
+        var anime = animeRatingDTO("标签展示动画");
+        anime.setTagIds(List.of(4L, 3L, 2L, 1L));
+        animeService.createAnime(anime);
+        var bookService = bookService();
+        var book = bookDTO();
+        book.setTagIds(List.of(4L, 3L, 2L, 1L));
+        bookService.createBook(book);
+
+        var animePage = animeService.pageAnime(new AnimePageDTO());
+        var bookPage = bookService.pageBook(new BookPageDTO());
+        var expected = List.of("Zulu", "奇幻", "alpha", "8号");
+        assertEquals(expected, animePage.getRows().getFirst().getTags().stream().map(tag -> tag.getName()).toList());
+        assertEquals(expected, bookPage.getRows().getFirst().getTags().stream().map(tag -> tag.getName()).toList());
     }
 
     @Test

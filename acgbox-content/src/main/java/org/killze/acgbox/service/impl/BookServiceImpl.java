@@ -478,7 +478,7 @@ public class BookServiceImpl implements BookService {
                     .adaptationType(adaptation == null ? null : AdaptationTypeVO.builder().id(adaptation.getId()).name(adaptation.getName()).sortOrder(adaptation.getSortOrder()).build())
                     .region(region == null ? null : RegionVO.builder().id(region.getId()).name(region.getName()).build())
                     .aliasNames(value.getAliasNames()).persons(value.getPersons()).externalLinks(value.getExternalLinks())
-                    .tags(value.getTagIds().stream().filter(tags::containsKey).map(id -> TagVO.builder().id(id).name(tags.get(id).getName()).build()).toList())
+                    .tags(CatalogNameInitialPage.tagViews(value.getTagIds().stream().map(tags::get).filter(Objects::nonNull)))
                     .companies(value.getCompanies().stream().filter(company -> companies.containsKey(company.getCompanyId()))
                             .map(company -> BookCompanyVO.builder().companyId(company.getCompanyId()).companyName(companies.get(company.getCompanyId()).getName())
                                     .role(company.getRole()).sortOrder(company.getSortOrder()).build()).toList())

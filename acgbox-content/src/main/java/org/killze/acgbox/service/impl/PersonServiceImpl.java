@@ -132,7 +132,8 @@ public class PersonServiceImpl implements PersonService {
                 .orderByDesc(Person::getId);
         Page<Person> page = new Page<>(pageDTO.getPageNum(), pageDTO.getPageSize());
         Page<Person> result = "NAME_INITIAL".equals(pageDTO.getSortBy())
-                ? CatalogNameInitialPage.selectPage(personMapper, page, wrapper, Person::getId, Person::getName)
+                ? CatalogNameInitialPage.selectPage(personMapper, page, wrapper,
+                        Person::getId, Person::getName, pageDTO.getSortDirection())
                 : personMapper.selectPage(page, wrapper);
         return PageVO.<PersonVO>builder()
                 .pageNum(result.getCurrent())

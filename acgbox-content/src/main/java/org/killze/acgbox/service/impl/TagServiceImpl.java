@@ -145,7 +145,10 @@ public class TagServiceImpl implements TagService {
                 pageDTO.getName()
         );
         // 分页查询
-        Page<Tag> result = tagMapper.selectPage(page, wrapper);
+        Page<Tag> result = "NAME_INITIAL".equals(pageDTO.getSortBy())
+                ? CatalogNameInitialPage.selectPage(tagMapper, page, wrapper.orderByDesc(Tag::getUpdatedAt).orderByDesc(Tag::getId),
+                        Tag::getId, Tag::getName, pageDTO.getSortDirection())
+                : tagMapper.selectPage(page, wrapper);
         // 封装结果
         List<TagVO> rows = result.getRecords().stream().map(tag -> TagVO.builder()
                 .id(tag.getId())

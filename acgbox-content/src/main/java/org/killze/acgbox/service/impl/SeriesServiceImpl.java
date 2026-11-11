@@ -141,7 +141,7 @@ public class SeriesServiceImpl implements SeriesService {
         // 分页查询
         Page<Series> result = "NAME_INITIAL".equals(pageDTO.getSortBy())
                 ? CatalogNameInitialPage.selectPage(seriesMapper, page, wrapper.orderByDesc(Series::getId),
-                        Series::getId, Series::getName)
+                        Series::getId, Series::getName, pageDTO.getSortDirection())
                 : seriesMapper.selectPage(page, wrapper);
         // 转换成 VO
         List<SeriesVO> rows = result.getRecords().stream().map(this::buildSeriesVO).toList();

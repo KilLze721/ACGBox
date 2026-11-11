@@ -1217,15 +1217,15 @@ public class AnimeServiceImpl implements AnimeService {
                 .collect(Collectors.toSet());
         List<Tag> tags = tagIds.isEmpty() ? List.of() : tagMapper.selectByIds(tagIds);
         Map<Long, Tag> tagMap = buildEntityMap(tags, Tag::getId);
-        Map<Long, List<TagVO>> result = new HashMap<>();
+        Map<Long, List<Tag>> tagsByAnimeId = new HashMap<>();
         relations.forEach(relation -> {
             Tag tag = tagMap.get(relation.getTagId());
             if (tag != null) {
-                result.computeIfAbsent(relation.getTargetId(), key -> new ArrayList<>())
-                        .add(TagVO.builder().id(tag.getId()).name(tag.getName()).build());
+                tagsByAnimeId.computeIfAbsent(relation.getTargetId(), key -> new ArrayList<>()).add(tag);
             }
         });
-        return result;
+        return tagsByAnimeId.entrySet().stream().collect(Collectors.toMap(
+                Map.Entry::getKey, entry -> CatalogNameInitialPage.tagViews(entry.getValue().stream())));
     }
 
     /**
