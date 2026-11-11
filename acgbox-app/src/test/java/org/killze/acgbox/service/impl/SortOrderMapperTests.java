@@ -1351,7 +1351,7 @@ class SortOrderMapperTests {
     }
 
     @Test
-    void animeAndBookPagesDisplayTagsByDescendingNameInitial() {
+    void animeAndBookPagesDisplayTagsByAscendingNameInitial() {
         seedBookCatalogs();
         session.getMapper(BroadcastTypeMapper.class).insert(BroadcastType.builder().name("TV").sortOrder(0L).build());
         var tagMapper = session.getMapper(TagMapper.class);
@@ -1370,7 +1370,7 @@ class SortOrderMapperTests {
 
         var animePage = animeService.pageAnime(new AnimePageDTO());
         var bookPage = bookService.pageBook(new BookPageDTO());
-        var expected = List.of("Zulu", "奇幻", "alpha", "8号");
+        var expected = List.of("alpha", "奇幻", "Zulu", "8号");
         assertEquals(expected, animePage.getRows().getFirst().getTags().stream().map(tag -> tag.getName()).toList());
         assertEquals(expected, bookPage.getRows().getFirst().getTags().stream().map(tag -> tag.getName()).toList());
     }

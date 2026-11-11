@@ -55,7 +55,7 @@ final class CatalogNameInitialPage {
     }
 
     static List<TagVO> tagViews(Stream<Tag> tags) {
-        return tags.sorted(Comparator.comparingInt((Tag tag) -> initialOrder(tag.getName(), true))
+        return tags.sorted(Comparator.comparingInt((Tag tag) -> initial(tag.getName()))
                         .thenComparing(Tag::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(Tag::getId, Comparator.reverseOrder()))
                 .map(tag -> TagVO.builder().id(tag.getId()).name(tag.getName()).build())
