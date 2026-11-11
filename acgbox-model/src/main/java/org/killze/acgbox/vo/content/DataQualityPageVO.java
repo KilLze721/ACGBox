@@ -17,5 +17,5 @@ public record DataQualityPageVO(Long pageNum, Long pageSize, Long total, Long pa
 
     public record Row(String targetType, Long targetId, String name, String coverImageUrl,
                       Reference contentType, Reference region, LocalDateTime updatedAt,
-                      List<Issue> issues, Long duplicateCount) { }
+                      List<Issue> issues, Long duplicateCount, String description) { }
 }

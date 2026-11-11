@@ -1061,8 +1061,7 @@ class SortOrderMapperTests {
         }
     }
 
-    @Test
-    void dataQualityChecksScopeCountsPagingAndTypesThroughTheReadEndpoint() throws Exception {
+    private void installDataQualityTextFunctions() throws Exception {
         // 内存库提供 PostgreSQL 文本函数的等价行为；实际筛选、连接、分组和分页由 SQL 执行。
         org.sqlite.Collation.create(connection, "C", new org.sqlite.Collation() {
             @Override
@@ -1103,6 +1102,11 @@ class SortOrderMapperTests {
                 result(value_text(0).indexOf(value_text(1)) + 1);
             }
         });
+    }
+
+    @Test
+    void dataQualityChecksScopeCountsPagingAndTypesThroughTheReadEndpoint() throws Exception {
+        installDataQualityTextFunctions();
         seedBookCatalogs();
         var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
         jdbc.update("INSERT INTO broadcast_type (id,name) VALUES (1,'TV')");
@@ -1215,6 +1219,59 @@ class SortOrderMapperTests {
         var failure = json.readTree(failedMvc.perform(request).andReturn().getResponse().getContentAsByteArray());
         assertEquals(500, failure.path("code").asInt());
         assertFalse(failure.hasNonNull("data"));
+    }
+
+    @Test
+    void personQualityReturnsIndividualProfilesWithTheFullDuplicateGroupSize() throws Exception {
+        installDataQualityTextFunctions();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        jdbc.update("""
+                INSERT INTO person (id,name,description,created_at,updated_at)
+                VALUES (1,?,NULL,'2026-11-11','2026-11-11 12:00:00.000'),
+                       (2,'ALICE','摄影','2026-11-11','2026-11-11 12:00:00.000'),
+                       (3,'alice','编剧','2026-11-10','2026-11-10 12:00:00.000'),
+                       (4,'Alice!',NULL,'2026-11-11','2026-11-11 13:00:00.000'),
+                       (5,'其他人物',NULL,'2026-11-11','2026-11-11 13:00:00.000')
+                """, "\t Alice " + (char) 0x3000);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(jdbc)))
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "PERSON").param("ruleCodes", "SAME_NAME_REVIEW")
+                .param("keyword", "  aLiCe\t").param("pageSize", "2");
+        var response = json.readTree(mvc.perform(request).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(200, response.path("code").asInt(), response.toString());
+        var result = response.path("data");
+        assertEquals(3, result.path("total").asInt());
+        assertEquals(2, result.path("pages").asInt());
+        assertEquals(4, result.path("summary").path("scopeTotal").asInt());
+        assertEquals(json.readTree("{\"SAME_NAME_REVIEW\":3}"), result.path("summary").path("ruleCounts"));
+        var rows = result.path("rows");
+        assertEquals(2, rows.size());
+        assertEquals("PERSON", rows.get(0).path("targetType").asText());
+        assertEquals(2L, rows.get(0).path("targetId").asLong());
+        assertEquals("ALICE", rows.get(0).path("name").asText());
+        assertEquals("摄影", rows.get(0).path("description").asText());
+        assertTrue(rows.get(0).hasNonNull("updatedAt"));
+        assertTrue(rows.get(0).path("coverImageUrl").isNull());
+        assertTrue(rows.get(0).path("contentType").isNull());
+        assertTrue(rows.get(0).path("region").isNull());
+        assertEquals("SAME_NAME_REVIEW", rows.get(0).path("issues").get(0).path("code").asText());
+        assertEquals(3L, rows.get(0).path("duplicateCount").asLong());
+        assertEquals(1L, rows.get(1).path("targetId").asLong());
+        assertTrue(rows.get(1).path("description").isNull());
+        var next = json.readTree(mvc.perform(request.param("pageNum", "2").param("matchMode", "ALL"))
+                .andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(1, next.path("rows").size());
+        assertEquals(3L, next.path("rows").get(0).path("targetId").asLong());
+        assertEquals(3L, next.path("rows").get(0).path("duplicateCount").asLong());
+
+        var invalid = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", "PERSON").param("ruleCodes", "SAME_NAME_REVIEW,MISSING_COVER");
+        var error = json.readTree(mvc.perform(invalid).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(500, error.path("code").asInt());
+        assertEquals("PERSON 仅支持 SAME_NAME_REVIEW 检查规则", error.path("message").asText());
     }
 
     @Test

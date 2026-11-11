@@ -20,7 +20,7 @@ import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 
-/** 实时读取作品资料，不持久化检查结果。 */
+/** 实时读取内容资料，不持久化检查结果。 */
 @Service
 public class DataQualityServiceImpl {
     private static final String WHITESPACE = " \t\n\r\f" + (char) 11 + (char) 0xa0 + (char) 0x3000;
@@ -76,6 +76,30 @@ public class DataQualityServiceImpl {
             ORDER BY paged.updated_at DESC, paged.id DESC
             """;
 
+    private static final String PERSON_SQL = """
+            WITH named AS (
+                SELECT id, name, description, updated_at,
+                       COUNT(*) OVER (PARTITION BY
+                           translate(btrim(name, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') COLLATE "C") AS duplicate_count
+                FROM person
+            ), scoped AS (
+                SELECT *
+                FROM named
+                WHERE strpos(translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),
+                             translate(btrim(?, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')) > 0
+            ), summary AS (
+                SELECT COUNT(*) AS scope_total,
+                       COUNT(CASE WHEN duplicate_count > 1 THEN 1 END) AS count_same_name
+                FROM scoped
+            ), paged AS (
+                SELECT scoped.*, 1 AS same_name_review FROM scoped WHERE duplicate_count > 1
+                ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?
+            )
+            SELECT summary.*, summary.count_same_name AS total, paged.*
+            FROM summary LEFT JOIN paged ON TRUE
+            ORDER BY paged.updated_at DESC, paged.id DESC
+            """;
+
     private enum Rule {
         MISSING_COVER("缺封面", "missing_cover", "count_cover"),
         MISSING_DESCRIPTION("缺简介", "missing_description", "count_description"),
@@ -105,7 +129,8 @@ public class DataQualityServiceImpl {
     public DataQualityPageVO pageDataQuality(DataQualityPageDTO dto) {
         String target = dto.getTargetType();
         boolean anime = "ANIME".equals(target);
-        if (!anime && !"BOOK".equals(target)) throw new BusinessException("targetType 必须为 ANIME 或 BOOK");
+        boolean person = "PERSON".equals(target);
+        if (!anime && !person && !"BOOK".equals(target)) throw new BusinessException("targetType 必须为 ANIME、BOOK 或 PERSON");
         String mode = dto.getMatchMode();
         if (!"ANY".equals(mode) && !"ALL".equals(mode)) throw new BusinessException("matchMode 必须为 ANY 或 ALL");
         if (dto.getRuleCodes() == null || dto.getRuleCodes().isEmpty()) throw new BusinessException("至少选择一项检查规则");
@@ -117,18 +142,25 @@ public class DataQualityServiceImpl {
                 throw new BusinessException("ruleCodes 包含未知检查规则");
             }
         }
+        if (person && !rules.equals(EnumSet.of(Rule.SAME_NAME_REVIEW))) {
+            throw new BusinessException("PERSON 仅支持 SAME_NAME_REVIEW 检查规则");
+        }
         Long pageNum = dto.getPageNum();
         Long pageSize = dto.getPageSize();
         if (pageNum == null || pageNum < 1) throw new BusinessException("pageNum 必须大于等于 1");
         if (pageSize == null || pageSize < 1 || pageSize > 100) throw new BusinessException("pageSize 必须在 1 到 100 之间");
         long offset = pageNum - 1 > Long.MAX_VALUE / pageSize ? Long.MAX_VALUE : (pageNum - 1) * pageSize;
+        String keyword = dto.getKeyword() == null ? "" : dto.getKeyword();
+        // 单条查询共享同一读取视图；汇总行保证空结果和超页仍有统计。
+        ResultSetExtractor<DataQualityPageVO> result = rs -> assemble(rs, target, rules, pageNum, pageSize);
+        if (person) {
+            return jdbc.query(PERSON_SQL, result, WHITESPACE, keyword, WHITESPACE, pageSize, offset);
+        }
         int minimum = "ALL".equals(mode) ? rules.size() : 1;
         String sql = anime ? SQL.formatted("broadcast_type_id", "", "anime", "broadcast_type", "air_date")
                 : SQL.formatted("book_type_id", "w.book_type_id, ", "book", "book_type", "publish_date");
-        // 单条查询共享同一读取视图；汇总行保证空结果和超页仍有统计。
-        ResultSetExtractor<DataQualityPageVO> result = rs -> assemble(rs, target, rules, pageNum, pageSize);
         return jdbc.query(sql, result,
-                WHITESPACE, WHITESPACE, WHITESPACE, target, target, target, dto.getKeyword() == null ? "" : dto.getKeyword(), WHITESPACE,
+                WHITESPACE, WHITESPACE, WHITESPACE, target, target, target, keyword, WHITESPACE,
                 rules.contains(Rule.MISSING_COVER) ? 1 : 0,
                 rules.contains(Rule.MISSING_DESCRIPTION) ? 1 : 0,
                 rules.contains(Rule.MISSING_PERSON) ? 1 : 0,
@@ -142,9 +174,12 @@ public class DataQualityServiceImpl {
     private DataQualityPageVO assemble(ResultSet rs, String target, EnumSet<Rule> rules,
                                        long pageNum, long pageSize) throws SQLException {
         if (!rs.next()) throw new IllegalStateException("数据质量检查未返回统计");
+        boolean person = "PERSON".equals(target);
         long total = rs.getLong("total");
         var counts = new LinkedHashMap<String, Long>();
-        for (Rule rule : Rule.values()) counts.put(rule.name(), rs.getLong(rule.countColumn));
+        for (Rule rule : Rule.values()) {
+            if (!person || rule == Rule.SAME_NAME_REVIEW) counts.put(rule.name(), rs.getLong(rule.countColumn));
+        }
         var summary = new Summary(rs.getLong("scope_total"), counts);
         var rows = new ArrayList<Row>();
         do {
@@ -156,15 +191,19 @@ public class DataQualityServiceImpl {
                 if (rs.getInt(rule.hitColumn) == 0) continue;
                 if (rule == Rule.SAME_NAME_REVIEW) {
                     duplicateCount = rs.getLong("duplicate_count");
-                    issues.add(new Issue(rule.name(), "同类型同名作品共 " + duplicateCount + " 部，请人工核对"));
+                    String message = person ? "同名人物共 " + duplicateCount + " 人，请人工核对"
+                            : "同类型同名作品共 " + duplicateCount + " 部，请人工核对";
+                    issues.add(new Issue(rule.name(), message));
                 } else {
                     issues.add(new Issue(rule.name(), rule.message));
                 }
             }
             var updatedAt = rs.getTimestamp("updated_at");
-            rows.add(new Row(target, id, rs.getString("name"), rs.getString("cover_image_url"),
-                    reference(rs, "content_type_id", "content_type_name"), reference(rs, "region_ref_id", "region_name"),
-                    updatedAt == null ? null : updatedAt.toLocalDateTime(), issues, duplicateCount));
+            rows.add(new Row(target, id, rs.getString("name"), person ? null : rs.getString("cover_image_url"),
+                    person ? null : reference(rs, "content_type_id", "content_type_name"),
+                    person ? null : reference(rs, "region_ref_id", "region_name"),
+                    updatedAt == null ? null : updatedAt.toLocalDateTime(), issues, duplicateCount,
+                    person ? rs.getString("description") : null));
         } while (rs.next());
         long pages = total == 0 ? 0 : 1 + (total - 1) / pageSize;
         return new DataQualityPageVO(pageNum, pageSize, total, pages, OffsetDateTime.now(ZoneId.of("Asia/Shanghai")), summary, rows);
