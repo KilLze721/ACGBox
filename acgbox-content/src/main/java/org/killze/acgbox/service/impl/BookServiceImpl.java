@@ -144,24 +144,16 @@ public class BookServiceImpl implements BookService {
     public List<Book> selectBookForExport(BookPageDTO dto) {
         dto.setPageNum(1L);
         dto.setPageSize(100L);
-        normalizePage(dto);
-        LocalDate start = dateBound(dto.getPublishStartDate(), false);
-        LocalDate end = dateBound(dto.getPublishEndDate(), true);
-        if (start != null && end != null && start.isAfter(end)) throw new BusinessException("publishStartDate 不能晚于 publishEndDate");
-        var page = bookMapper.selectBookPage(new Page<>(1, 501), dto, start, end);
+        PublishDateRange dates = normalizePage(dto);
+        var page = bookMapper.selectBookPage(new Page<>(1, 501), dto, dates.start(), dates.end());
         if (page.getTotal() > 500) throw new BusinessException("导出结果超过 500 部，请缩小筛选范围");
         return page.getRecords();
     }
 
     @Override
     public PageVO<BookPageVO> pageBook(BookPageDTO dto) {
-        normalizePage(dto);
-        LocalDate start = dateBound(dto.getPublishStartDate(), false);
-        LocalDate end = dateBound(dto.getPublishEndDate(), true);
-        if (start != null && end != null && start.isAfter(end)) {
-            throw new BusinessException("publishStartDate 不能晚于 publishEndDate");
-        }
-        var page = bookMapper.selectBookPage(new Page<>(dto.getPageNum(), dto.getPageSize()), dto, start, end);
+        PublishDateRange dates = normalizePage(dto);
+        var page = bookMapper.selectBookPage(new Page<>(dto.getPageNum(), dto.getPageSize()), dto, dates.start(), dates.end());
         return PageVO.<BookPageVO>builder().pageNum(page.getCurrent()).pageSize(page.getSize())
                 .total(page.getTotal()).pages(page.getPages()).rows(pageViews(page.getRecords())).build();
     }
@@ -487,7 +479,8 @@ public class BookServiceImpl implements BookService {
         }).toList();
     }
 
-    private void normalizePage(BookPageDTO dto) {
+    /** 列表和按条件导出共用筛选校验，发表日期按起止边界展开。 */
+    private PublishDateRange normalizePage(BookPageDTO dto) {
         if (dto.getPageNum() == null) {
             dto.setPageNum(1L);
         }
@@ -518,6 +511,12 @@ public class BookServiceImpl implements BookService {
         dto.setTagMatchMode(option(dto.getTagMatchMode(), "ALL", Set.of("ALL", "ANY"), "tagMatchMode"));
         dto.setSortBy(option(dto.getSortBy(), "PUBLISH_DATE", Set.of("PUBLISH_DATE", "PERSONAL_RATING"), "sortBy"));
         dto.setSortDirection(option(dto.getSortDirection(), "DESC", Set.of("ASC", "DESC"), "sortDirection"));
+        LocalDate start = dateBound(dto.getPublishStartDate(), false);
+        LocalDate end = dateBound(dto.getPublishEndDate(), true);
+        if (start != null && end != null && start.isAfter(end)) {
+            throw new BusinessException("publishStartDate 不能晚于 publishEndDate");
+        }
+        return new PublishDateRange(start, end);
     }
 
     private String option(String value, String fallback, Set<String> allowed, String label) {
@@ -604,6 +603,9 @@ public class BookServiceImpl implements BookService {
     private <T> Map<Long, List<T>> group(List<T> values, Function<T, Long> id) {
         return values.stream().collect(Collectors.groupingBy(id, LinkedHashMap::new, Collectors.toList()));
     }
+
+    /** 发表日期筛选的起止边界，未指定的一侧为 null。 */
+    private record PublishDateRange(LocalDate start, LocalDate end) { }
 
     /** 保存前已清洗的关联快照，避免写入阶段再进行业务校验。 */
     private record PreparedBook(Book book, List<String> aliases, List<CompanyRelationDTO> companies,

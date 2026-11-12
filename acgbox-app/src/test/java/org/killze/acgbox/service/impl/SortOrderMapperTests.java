@@ -658,6 +658,7 @@ class SortOrderMapperTests {
         query.setPublishStartDate("2024");
         query.setPublishEndDate("2024-02");
         assertEquals(List.of(2L), bookIds(service.pageBook(query)));
+        assertEquals(List.of(2L), service.selectBookForExport(query).stream().map(Book::getId).toList());
         query.setPublishStartDate("2024-02-29");
         assertEquals(List.of(2L), bookIds(service.pageBook(query)));
         query = new BookPageDTO();
