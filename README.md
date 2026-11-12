@@ -1,6 +1,6 @@
 # ACGBox
 
-ACGBox 是一个 ACG 内容后台管理系统，用于管理动画、漫画、小说等作品的元数据。本仓库为后端部分，基于 Spring Boot 构建，提供 RESTful 接口。
+本仓库提供 ACGBox 管理端的 REST API，涵盖动画、书籍、关联资料、基础字典和账号管理。
 
 ## 技术栈
 
@@ -63,37 +63,24 @@ psql -U postgres -d acgbox -f sql/public.sql
 
 ### 2. 配置数据源
 
-编辑 `acgbox-app/src/main/resources/application.yml`，按需修改数据库连接信息：
+将数据库连接和 JWT 密钥配置在仓库外的 `application-secrets.yml` 中。按需填写 Redis、邮件和图片上传配置。字段和示例见 [外部私有配置说明](docs/外部私有配置说明.md)。
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/acgbox
-    username: postgres
-    password: 123456
-```
+### 3. 启动
 
-### 3. 编译
+在后端仓库根目录构建可执行 JAR。默认端口为 8080，将启动参数中的文件路径替换为本机实际路径。
 
-```bash
-mvn clean compile
-```
-
-### 4. 启动
-
-```bash
-# 从 ACGBox 根目录构建并启动（监听 8080 端口）
+```powershell
 mvn -pl acgbox-app -am -DskipTests package
-java -jar acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar
+java -jar acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar --spring.config.additional-location=file:D:/path/to/application-secrets.yml
 ```
 
-### 5. 验证
+### 4. 验证
 
-```bash
-curl -i http://localhost:8080/adaptation-type/list
+```powershell
+curl.exe -i http://localhost:8080/adaptation-type/list
 ```
 
-未登录时应跳转到登录页；当前尚未接入数据库账号认证，不能使用 `user_account` 中的账号登录。
+未携带有效 JWT 时，受保护接口应返回 HTTP 401。业务联调使用已启用的 `user_account` 账号登录，在后续请求中携带 `Authorization: Bearer <token>`。
 
 ## 构建命令
 
@@ -104,33 +91,26 @@ mvn clean compile
 # 运行测试
 mvn test
 
-# 打包并启动（监听 8080 端口）
-mvn -pl acgbox-app -am -DskipTests package
-java -jar acgbox-app/target/acgbox-app-0.0.1-SNAPSHOT.jar
-
 # 打包（跳过测试）
 mvn clean package -DskipTests
 ```
 
 ## 接口概览
 
-目前共实现 7 个 Controller，统一提供 5 类端点：`POST /create`、`POST /update`、`POST /delete`（接收 `List<Long>`）、`GET /{id}`、`GET /list`（或 `/page`）。
-
 | 模块 | 路径 | 说明 |
 |------|------|------|
-| 动画 | `/anime` | 完整 CRUD + 多维度条件分页查询 |
-| 改编类型 | `/adaptation-type` | 全量列表查询 |
-| 放送类型 | `/broadcast-type` | 全量列表查询 |
-| 地区 | `/region` | 全量列表查询 |
-| 标签 | `/tags` | 分页模糊查询 |
-| 公司 | `/companies` | 分页模糊查询（含简介） |
-| 系列 | `/series` | 分页模糊查询（含简介） |
+| 作品 | `/anime`、`/book` | 作品维护、详情和条件分页 |
+| 关联资料 | `/series`、`/companies`、`/persons`、`/tags` | 资料维护、名称查询和首字母排序 |
+| 基础字典 | `/broadcast-type`、`/adaptation-type`、`/region`、`/book-type` | 字典维护和选项查询 |
+| 作品工具 | `/uploads`、`/data-transfer`、`/data-quality` | 封面上传、数据导入导出、质量检查 |
+| 登录与个人账号 | `/admin/login`、`/admin/logout`、`/admin/account` | 登录、退出、资料查询、密码和邮箱管理 |
+| 管理员功能 | `/admin/users`、`/admin/system` | 账号管理和服务连接检测 |
 
-详细请求/响应说明见 `ACGBox接口文档.md`。
+登录支持账号密码、邮箱密码和邮箱验证码。用户管理与系统检测仅允许 `ADMIN` 访问。其余已认证接口面向 `ADMIN` 和 `EDITOR`，各接口的业务条件见 [管理端接口文档](../docs/ACGBox管理端接口文档.md)。
 
 ## 统一响应规范
 
-所有接口返回 `Result<T>` 结构：
+常规 JSON 业务响应使用 `Result<T>`：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -142,32 +122,9 @@ mvn clean package -DskipTests
 
 ## 数据库表
 
-共 13 张表，完整建表语句见 `sql/public.sql`：
-
-| 表名 | 说明 |
-|------|------|
-| `anime` | 动画表 |
-| `adaptation_type` | 改编类型表 |
-| `broadcast_type` | 放送类型表 |
-| `region` | 地区表 |
-| `tag` | 标签表 |
-| `company` | 制作公司表 |
-| `series` | 系列表 |
-| `alias` | 通用别名表（`target_type` + `target_id`） |
-| `company_relation` | 通用公司关联表（`target_type` + `target_id`） |
-| `tag_relation` | 通用标签关联表（`target_type` + `target_id`） |
-| `external_link` | 通用外部链接表（`target_type` + `target_id`） |
-| `series_item` | 系列条目表（`series_id` + `work_type` + `work_id`） |
-| `personal_rating` | 个人评分表（`target_type` + `target_id`） |
-
-## 当前进度
-
-- ✅ 字典类 CRUD：改编类型、放送类型、地区、标签、公司、系列
-- ✅ 核心业务：动画 CRUD（创建 / 修改 / 批量删除 / 详情 / 条件分页查询，含别名、标签、公司、外链、系列、个人评分等关联）
-- ⚠️ 认证 / 授权：已引入 Spring Security 并要求后台接口登录，数据库账号认证与角色权限尚未实现（`ResultCode` 预留了 401/403）
-- ❌ 社区评分系统：尚未实现（计划用 Redis；个人评分已实现）
+作品主体存放在 `anime` 和 `book` 中。别名、标签、公司、人物、外链与评分通过作品类型和 ID 关联，系列归属由 `series_item` 记录。完整表结构、约束和索引见 [初始化 SQL](sql/public.sql)。
 
 ## 相关文档
 
-- [`../ACGBox接口文档.md`](../ACGBox接口文档.md)：接口详细说明（上级目录）
-- [`../CLAUDE.md`](../CLAUDE.md)：项目开发指南（上级目录）
+- [工作区导航](../CLAUDE.md)
+- [部署说明](deploy/README.md)
