@@ -75,6 +75,9 @@ class SecurityConfigTests {
     @MockitoBean
     private org.killze.acgbox.service.impl.DataQualityServiceImpl dataQualityService;
 
+    @MockitoBean
+    private org.killze.acgbox.service.SeriesService seriesService;
+
     private UserAccount userAccount;
 
     private MockMvc mockMvc;
@@ -397,7 +400,7 @@ class SecurityConfigTests {
     @EnableWebSecurity
     @Import({SecurityConfig.class, JwtConfig.class, TestController.class,
             org.killze.acgbox.controller.ImageUploadController.class, org.killze.acgbox.controller.DataTransferController.class,
-            org.killze.acgbox.controller.DataQualityController.class})
+            org.killze.acgbox.controller.DataQualityController.class, org.killze.acgbox.controller.SeriesController.class})
     static class TestConfig {
     }
 
@@ -413,6 +416,19 @@ class SecurityConfigTests {
         });
         if (role.equals("USER") || role.equals("ANONYMOUS")) verifyNoInteractions(dataQualityService);
         else verify(dataQualityService).pageDataQuality(any());
+    }
+
+    /** 系列关联作品与其他内容详情使用相同的管理角色。 */
+    @ParameterizedTest
+    @ValueSource(strings = {"ADMIN", "EDITOR", "USER", "ANONYMOUS"})
+    void seriesWorksUsesExistingContentPermissions(String role) throws Exception {
+        var request = get("/series/7/works");
+        if (!role.equals("ANONYMOUS")) request.header(HttpHeaders.AUTHORIZATION, "Bearer " + createToken(role));
+        mockMvc.perform(request).andExpect(switch (role) {
+            case "USER" -> status().isForbidden();
+            case "ANONYMOUS" -> status().isUnauthorized();
+            default -> status().isOk();
+        });
     }
 
     @ParameterizedTest

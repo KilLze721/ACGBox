@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.killze.acgbox.mapper.SeriesItemMapper">
+
+    <resultMap id="seriesWork" type="org.killze.acgbox.vo.content.SeriesWorksVO$Work">
+        <constructor>
+            <arg column="work_type" javaType="java.lang.String"/>
+            <arg column="work_id" javaType="java.lang.Long"/>
+            <arg column="name" javaType="java.lang.String"/>
+            <arg column="cover_image_url" javaType="java.lang.String"/>
+            <arg column="release_date" javaType="java.time.LocalDate"/>
+            <arg column="book_type_name" javaType="java.lang.String"/>
+        </constructor>
+    </resultMap>
+
+    <!-- 按类型匹配作品 ID，排除无对应作品的条目后再计数和分页。 -->
+    <select id="selectSeriesWorks" resultMap="seriesWork">
+        SELECT UPPER(si.work_type) AS work_type, si.work_id,
+               COALESCE(a.name, b.name) AS name,
+               COALESCE(a.cover_image_url, b.cover_image_url) AS cover_image_url,
+               COALESCE(a.air_date, b.publish_date) AS release_date,
+               bt.name AS book_type_name
+        FROM series_item si
+        LEFT JOIN anime a ON si.work_type = 'anime' AND si.work_id = a.id
+        LEFT JOIN book b ON si.work_type = 'book' AND si.work_id = b.id
+        LEFT JOIN book_type bt ON b.book_type_id = bt.id
+        WHERE si.series_id = #{seriesId} AND (a.id IS NOT NULL OR b.id IS NOT NULL)
+        ORDER BY release_date ASC NULLS LAST, si.id ASC
+    </select>
+</mapper>

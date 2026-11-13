@@ -124,6 +124,9 @@ class SortOrderMapperTests {
         try (var mapper = Resources.getResourceAsStream("mapper/BookMapper.xml")) {
             new XMLMapperBuilder(mapper, configuration, "mapper/BookMapper.xml", configuration.getSqlFragments()).parse();
         }
+        try (var mapper = Resources.getResourceAsStream("mapper/SeriesItemMapper.xml")) {
+            new XMLMapperBuilder(mapper, configuration, "mapper/SeriesItemMapper.xml", configuration.getSqlFragments()).parse();
+        }
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.SQLITE));
         configuration.addInterceptor(interceptor);
@@ -1349,6 +1352,68 @@ class SortOrderMapperTests {
         var error = json.readTree(mvc.perform(invalid).andReturn().getResponse().getContentAsByteArray());
         assertEquals(500, error.path("code").asInt());
         assertEquals("sortDirection 仅支持 ASC 或 DESC", error.path("message").asText());
+    }
+
+    /** 在同一系列中验证动画、书籍混合分页及空结果。 */
+    @Test
+    void seriesWorksReturnsOnlyExistingAnimeAndBooksInReleaseOrder() throws Exception {
+        seedBookCatalogs();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        jdbc.update("INSERT INTO series (id,name,description) VALUES (7,'同一系列','系列简介'),(8,'另一系列',NULL),(9,'空系列',NULL)");
+        jdbc.update("INSERT INTO anime (id,name,air_date) VALUES (1,'第一季','2020-04-01'),(2,'新作',NULL),(3,'其他动画','2018-01-01')");
+        jdbc.update("""
+                INSERT INTO book (id,name,book_type_id,adaptation_type_id,region_id,status,publish_date,cover_image_url,created_at,updated_at)
+                VALUES (1,'原作',1,1,1,0,'2019-05-01','https://example.com/cover.jpg','2026-11-13T10:00:00','2026-11-13T10:00:00'),
+                       (2,'续作',1,1,1,0,'2020-04-01',NULL,'2026-11-13T10:00:00','2026-11-13T10:00:00')
+                """);
+        jdbc.update("""
+                INSERT INTO series_item (series_id,work_type,work_id)
+                VALUES (7,'anime',2),(7,'anime',1),(7,'book',2),(7,'book',1),
+                       (7,'book',3),(7,'anime',99),(7,'manga',1),(8,'anime',3)
+                """);
+        var service = new SeriesServiceImpl();
+        ReflectionTestUtils.setField(service, "seriesMapper", session.getMapper(SeriesMapper.class));
+        ReflectionTestUtils.setField(service, "seriesItemMapper", session.getMapper(SeriesItemMapper.class));
+        var controller = new org.killze.acgbox.controller.SeriesController();
+        ReflectionTestUtils.setField(controller, "seriesService", service);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/series/7/works")
+                .param("pageSize", "2");
+        var response = json.readTree(mvc.perform(request).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(200, response.path("code").asInt(), response.toString());
+        var data = response.path("data");
+        assertEquals(json.readTree("{\"id\":7,\"name\":\"同一系列\",\"description\":\"系列简介\"}"), data.path("series"));
+        var page = data.path("works");
+        assertEquals(4, page.path("total").asInt());
+        assertEquals(2, page.path("pages").asInt());
+        var rows = page.path("rows");
+        assertEquals(2, rows.size());
+        assertEquals("BOOK", rows.get(0).path("workType").asText());
+        assertEquals(1, rows.get(0).path("workId").asInt());
+        assertEquals("原作", rows.get(0).path("name").asText());
+        assertEquals("轻小说", rows.get(0).path("bookTypeName").asText());
+        assertEquals("https://example.com/cover.jpg", rows.get(0).path("coverImageUrl").asText());
+        assertEquals("2019-05-01", rows.get(0).path("releaseDate").asText());
+        assertEquals("ANIME", rows.get(1).path("workType").asText());
+        assertEquals(1, rows.get(1).path("workId").asInt());
+        assertTrue(rows.get(1).path("bookTypeName").isNull());
+
+        var next = json.readTree(mvc.perform(request.param("pageNum", "2"))
+                .andReturn().getResponse().getContentAsByteArray()).path("data").path("works").path("rows");
+        assertEquals(2, next.size());
+        assertEquals("续作", next.get(0).path("name").asText());
+        assertEquals("新作", next.get(1).path("name").asText());
+        assertTrue(next.get(1).path("releaseDate").isNull());
+
+        var empty = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/series/9/works")).andReturn().getResponse().getContentAsByteArray()).path("data").path("works");
+        assertEquals(0, empty.path("total").asInt());
+        assertTrue(empty.path("rows").isArray() && empty.path("rows").isEmpty());
+        var missing = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/series/999/works")).andReturn().getResponse().getContentAsByteArray());
+        assertEquals("此系列不存在", missing.path("message").asText());
     }
 
     @Test

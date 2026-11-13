@@ -2,14 +2,17 @@ package org.killze.acgbox.service.impl;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.killze.acgbox.dto.common.PageDTO;
 import org.killze.acgbox.dto.content.SeriesDTO;
 import org.killze.acgbox.dto.content.SeriesPageDTO;
 import org.killze.acgbox.entity.content.Series;
 import org.killze.acgbox.exception.BusinessException;
+import org.killze.acgbox.mapper.SeriesItemMapper;
 import org.killze.acgbox.mapper.SeriesMapper;
 import org.killze.acgbox.service.SeriesService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.SeriesVO;
+import org.killze.acgbox.vo.content.SeriesWorksVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -27,6 +30,9 @@ public class SeriesServiceImpl implements SeriesService {
 
     @Autowired
     private SeriesMapper seriesMapper;
+
+    @Autowired
+    private SeriesItemMapper seriesItemMapper;
 
     /**
      * 创建系列
@@ -117,6 +123,28 @@ public class SeriesServiceImpl implements SeriesService {
         }
         // 返回系列信息
         return buildSeriesVO(series);
+    }
+
+    /** 复用系列详情，关联动画和书籍由数据库统一排序分页。 */
+    @Override
+    public SeriesWorksVO pageSeriesWorks(Long id, PageDTO pageDTO) {
+        Long pageNum = pageDTO.getPageNum();
+        Long pageSize = pageDTO.getPageSize();
+        if (pageNum == null || pageNum < 1L) {
+            throw new BusinessException("pageNum 必须大于等于 1");
+        }
+        if (pageSize == null || pageSize < 1L || pageSize > 100L) {
+            throw new BusinessException("pageSize 必须在 1 到 100 之间");
+        }
+        SeriesVO series = getSeriesById(id);
+        Page<SeriesWorksVO.Work> page = seriesItemMapper.selectSeriesWorks(new Page<>(pageNum, pageSize), id);
+        return new SeriesWorksVO(series, PageVO.<SeriesWorksVO.Work>builder()
+                .pageNum(page.getCurrent())
+                .pageSize(page.getSize())
+                .total(page.getTotal())
+                .pages(page.getPages())
+                .rows(page.getRecords())
+                .build());
     }
 
     /**

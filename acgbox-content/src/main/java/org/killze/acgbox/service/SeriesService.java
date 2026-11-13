@@ -1,10 +1,12 @@
 package org.killze.acgbox.service;
 
 import jakarta.validation.Valid;
+import org.killze.acgbox.dto.common.PageDTO;
 import org.killze.acgbox.dto.content.SeriesDTO;
 import org.killze.acgbox.dto.content.SeriesPageDTO;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.SeriesVO;
+import org.killze.acgbox.vo.content.SeriesWorksVO;
 
 import java.util.List;
 
@@ -45,6 +47,9 @@ public interface SeriesService {
      * @return 系列信息
      */
     SeriesVO getSeriesById(Long id);
+
+    /** 查询系列资料及其关联作品分页。 */
+    SeriesWorksVO pageSeriesWorks(Long id, PageDTO pageDTO);
 
     /**
      * 分页查询系列

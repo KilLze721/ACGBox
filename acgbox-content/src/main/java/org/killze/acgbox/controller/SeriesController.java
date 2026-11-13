@@ -2,12 +2,14 @@ package org.killze.acgbox.controller;
 
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.killze.acgbox.dto.common.PageDTO;
 import org.killze.acgbox.dto.content.SeriesDTO;
 import org.killze.acgbox.dto.content.SeriesPageDTO;
 import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.SeriesService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.SeriesVO;
+import org.killze.acgbox.vo.content.SeriesWorksVO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -61,6 +63,12 @@ public class SeriesController {
     public Result<SeriesVO> getSeriesById(@PathVariable Long id) {
         log.info("根据 id 获取系列：{}", id);
         return Result.success(seriesService.getSeriesById(id));
+    }
+
+    /** 查询作品详情中使用的系列资料和关联作品。 */
+    @GetMapping("/{id}/works")
+    public Result<SeriesWorksVO> pageSeriesWorks(@PathVariable Long id, PageDTO pageDTO) {
+        return Result.success(seriesService.pageSeriesWorks(id, pageDTO));
     }
 
     /**
