@@ -24,6 +24,11 @@
             <groupId>org.killze</groupId>
             <artifactId>acgbox-user</artifactId>
         </dependency>
+        <!-- 用户端模块随现有应用打包，不单独启动。 -->
+        <dependency>
+            <groupId>org.killze</groupId>
+            <artifactId>acgbox-web</artifactId>
+        </dependency>
         <dependency>
             <groupId>com.baomidou</groupId>
             <artifactId>mybatis-plus-spring-boot4-starter</artifactId>

@@ -35,13 +35,16 @@ ACGBox/
 │   ├── service/ + service/impl/ # 服务层
 │   ├── mapper/                  # MyBatis Plus Mapper 接口
 │   └── resources/mapper/        # 复杂查询的自定义 SQL XML
+├── acgbox-web/                  # 用户端后端模块（当前仅有构建骨架）
 ├── acgbox-app/                  # 启动模块（Spring Boot 入口，端口 8080）
 │   ├── AcgBoxApplication        # 唯一启动类
 │   └── resources/application.yml # 数据源与 MyBatis Plus 配置
 └── sql/public.sql               # 数据库建表脚本
 ```
 
-**依赖方向**：`app` 依赖 `content` 和 `user`；`content` 与 `user` 均依赖 `model` 和 `common`；`common` 依赖 `model`。
+**依赖方向**：`app` 依赖 `content`、`user` 和 `web`；`content` 与 `user` 均依赖 `model` 和 `common`。`web` 当前没有业务依赖。
+
+`acgbox-web` 用于承载用户端公开目录及登录后的个人业务入口，随 `acgbox-app` 一起打包，共用现有应用和数据库。后续用户端 Java 类型可放在 `org.killze.acgbox.web` 包下；当前不提供用户端接口，也不改变现有访问权限。
 
 ## 环境要求
 

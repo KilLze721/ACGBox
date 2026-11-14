@@ -23,6 +23,7 @@
         <module>acgbox-common</module>
         <module>acgbox-user</module>
         <module>acgbox-content</module>
+        <module>acgbox-web</module>
         <module>acgbox-app</module>
     </modules>
 
@@ -58,6 +59,11 @@
             <dependency>
                 <groupId>org.killze</groupId>
                 <artifactId>acgbox-content</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.killze</groupId>
+                <artifactId>acgbox-web</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>
