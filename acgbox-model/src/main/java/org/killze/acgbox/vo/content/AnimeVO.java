@@ -13,6 +13,8 @@ import java.util.List;
 @Data
 @Builder
 public class AnimeVO {
+    /** 有效公开状态，没有独立状态记录时为 true。 */
+    private Boolean isPublic;
 
     /**
      * 动画 ID

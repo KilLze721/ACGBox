@@ -59,6 +59,7 @@ class AnimeAssociationSortOrderTests {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), entity);
         }
         service = new AnimeServiceImpl();
+        ReflectionTestUtils.setField(service, "workVisibilityMapper", mock(org.killze.acgbox.mapper.WorkVisibilityMapper.class));
         animeMapper = mock(AnimeMapper.class);
         aliasMapper = mock(AliasMapper.class);
         companyRelationMapper = mock(CompanyRelationMapper.class);

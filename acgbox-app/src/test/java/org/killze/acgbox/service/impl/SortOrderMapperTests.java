@@ -66,6 +66,9 @@ class SortOrderMapperTests {
         connection = DriverManager.getConnection("jdbc:sqlite::memory:");
         try (var statement = connection.createStatement()) {
             statement.execute("PRAGMA foreign_keys = ON");
+            // 隔离测试使用独立状态表，不修改或执行业务库增量脚本。
+            statement.execute("CREATE TABLE work_visibility (target_type TEXT NOT NULL, target_id INTEGER NOT NULL, "
+                    + "is_public BOOLEAN NOT NULL DEFAULT TRUE, PRIMARY KEY(target_type,target_id))");
             for (String table : List.of("broadcast_type", "adaptation_type")) {
                 statement.execute("CREATE TABLE " + table + " (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, "
                         + "sort_order INTEGER NOT NULL DEFAULT 0, created_at TEXT, updated_at TEXT)");
@@ -113,6 +116,7 @@ class SortOrderMapperTests {
         configuration.addMapper(PersonMapper.class);
         configuration.addMapper(PersonRelationMapper.class);
         configuration.addMapper(AnimeMapper.class);
+        configuration.addMapper(WorkVisibilityMapper.class);
         for (Class<?> mapper : List.of(BookMapper.class, BookTypeMapper.class, CompanyMapper.class, TagMapper.class,
                 TagRelationMapper.class, ExternalLinkMapper.class, PersonalRatingMapper.class, SeriesMapper.class,
                 SeriesItemMapper.class, RegionMapper.class)) {
@@ -733,6 +737,7 @@ class SortOrderMapperTests {
         when(failedLinks.insert(any(ExternalLink.class))).thenThrow(new IllegalStateException("模拟外链写入失败"));
         ReflectionTestUtils.setField(service, "externalLinkMapper", failedLinks);
         BookDTO dto = bookDTO();
+        dto.setIsPublic(false);
         dto.setAutoCreateSeries(true);
         dto.setAliasNames(List.of("别名"));
         dto.setPersons(List.of(bookPerson(1L, "作者", 0L)));
@@ -743,7 +748,7 @@ class SortOrderMapperTests {
                 new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
         assertThrows(IllegalStateException.class, () -> transaction.execute(status -> service.createBook(dto)));
         try (var statement = connection.createStatement()) {
-            for (String table : List.of("book", "series", "alias", "person_relation", "company_relation", "external_link")) {
+            for (String table : List.of("book", "series", "alias", "person_relation", "company_relation", "external_link", "work_visibility")) {
                 try (var result = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
                     assertTrue(result.next());
                     assertEquals(0L, result.getLong(1), table);
@@ -775,6 +780,149 @@ class SortOrderMapperTests {
         assertEquals(1L, template.getMapper(PersonRelationMapper.class).selectCount(null));
         assertEquals(1L, template.getMapper(ExternalLinkMapper.class).selectCount(null));
         assertEquals(1L, template.getMapper(SeriesItemMapper.class).selectCount(null));
+        ReflectionTestUtils.setField(service, "bookMapper", template.getMapper(BookMapper.class));
+        assertFalse(service.getBookById(id).getIsPublic());
+    }
+
+    /** 验证管理接口对默认公开、显式 false、旧更新请求及类型隔离的完整回显。 */
+    @Test
+    void workVisibilityIsSavedReadFilteredAndDeletedThroughManagementEndpoints() throws Exception {
+        seedBookCatalogs();
+        session.getMapper(BroadcastTypeMapper.class).insert(BroadcastType.builder().name("TV").sortOrder(0L).build());
+        var animeService = animeRatingService();
+        var books = bookService();
+        var animeController = new org.killze.acgbox.controller.AnimeController();
+        ReflectionTestUtils.setField(animeController, "animeService", animeService);
+        var bookController = new org.killze.acgbox.controller.BookController();
+        ReflectionTestUtils.setField(bookController, "bookService", books);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(animeController, bookController)
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var a = animeRatingDTO("公开动画");
+        var b = bookDTO();
+        assertTrue(animeService.createAnime(a).getIsPublic());
+        assertTrue(books.createBook(b).getIsPublic());
+        a.setName("待隐藏动画");
+        b.setName("待隐藏书籍");
+        a.setIsPublic(false);
+        b.setIsPublic(false);
+        assertFalse(animeService.createAnime(a).getIsPublic());
+        assertFalse(books.createBook(b).getIsPublic());
+
+        for (String type : List.of("anime", "book")) {
+            var body = json.valueToTree(type.equals("anime") ? a : b).deepCopy();
+            var data = (tools.jackson.databind.node.ObjectNode) body;
+            data.put("id", 2L).remove("isPublic");
+            var update = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/" + type + "/update")
+                    .contentType("application/json");
+            var oldResult = json.readTree(mvc.perform(update.content(json.writeValueAsBytes(data)))
+                    .andReturn().getResponse().getContentAsByteArray());
+            assertEquals(200, oldResult.path("code").asInt(), oldResult.toString());
+            assertFalse(oldResult.path("data").path("isPublic").asBoolean());
+            data.putNull("isPublic");
+            assertFalse(json.readTree(mvc.perform(update.content(json.writeValueAsBytes(data)))
+                    .andReturn().getResponse().getContentAsByteArray()).path("data").path("isPublic").asBoolean());
+            // 同一值重复提交仍只有一个状态记录，切回公开也立即生效。
+            for (boolean value : List.of(true, true, false, false)) {
+                data.put("isPublic", value);
+                var changed = json.readTree(mvc.perform(update.content(json.writeValueAsBytes(data)))
+                        .andReturn().getResponse().getContentAsByteArray());
+                assertEquals(200, changed.path("code").asInt(), changed.toString());
+                assertEquals(value, changed.path("data").path("isPublic").asBoolean());
+            }
+            var detail = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .get("/" + type + "/2")).andReturn().getResponse().getContentAsByteArray());
+            assertFalse(detail.path("data").path("isPublic").asBoolean());
+            for (boolean value : List.of(true, false)) {
+                var page = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .get("/" + type + "/page").param("isPublic", String.valueOf(value)).param("pageSize", "1"))
+                        .andReturn().getResponse().getContentAsByteArray());
+                assertEquals(200, page.path("code").asInt(), page.toString());
+                assertEquals(1L, page.path("data").path("total").asLong());
+                assertEquals(1L, page.path("data").path("pages").asLong());
+                assertEquals(value ? 1L : 2L, page.path("data").path("rows").get(0).path("id").asLong());
+                assertEquals(value, page.path("data").path("rows").get(0).path("isPublic").asBoolean());
+            }
+            var all = json.readTree(mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                    .get("/" + type + "/page")).andReturn().getResponse().getContentAsByteArray());
+            assertEquals(2L, all.path("data").path("total").asLong());
+        }
+        a.setId(2L);
+        a.setIsPublic(true);
+        assertTrue(animeService.updateAnime(a).getIsPublic());
+        assertFalse(books.getBookById(2L).getIsPublic());
+        var animeQuery = new AnimePageDTO();
+        animeQuery.setIsPublic(false);
+        assertTrue(animeService.selectAnimeForExport(animeQuery).isEmpty());
+        var bookQuery = new BookPageDTO();
+        bookQuery.setIsPublic(false);
+        assertEquals(List.of(2L), books.selectBookForExport(bookQuery).stream().map(Book::getId).toList());
+        animeService.deleteAnime(List.of(2L));
+        assertTrue(session.getMapper(WorkVisibilityMapper.class).selectStates("ANIME", List.of(2L)).isEmpty());
+        assertFalse(books.getBookById(2L).getIsPublic());
+        books.deleteBooks(List.of(2L));
+        assertTrue(session.getMapper(WorkVisibilityMapper.class).selectStates("BOOK", List.of(2L)).isEmpty());
+    }
+
+    /** 状态表写入或清理失败时，作品主表必须与状态一起回滚。 */
+    @ParameterizedTest
+    @CsvSource({"ANIME,anime", "BOOK,book"})
+    void visibilityFailureRollsBackWorkCreationUpdateAndDeletion(String type, String table) throws Exception {
+        seedBookCatalogs();
+        session.getMapper(BroadcastTypeMapper.class).insert(BroadcastType.builder().name("TV").sortOrder(0L).build());
+        var config = session.getConfiguration();
+        var dataSource = config.getEnvironment().getDataSource();
+        config.setEnvironment(new Environment("visibility-transaction-memory",
+                new org.mybatis.spring.transaction.SpringManagedTransactionFactory(), dataSource));
+        var template = new org.mybatis.spring.SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(config));
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                new org.springframework.jdbc.datasource.DataSourceTransactionManager(dataSource));
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(dataSource);
+        var animeService = animeRatingService(template);
+        // 内存库只验证状态事务，PostgreSQL 名称锁的并发语义不在本用例范围。
+        var animeMapper = spy(template.getMapper(AnimeMapper.class));
+        doReturn(1L).when(animeMapper).lockAnimeNames();
+        ReflectionTestUtils.setField(animeService, "animeMapper", animeMapper);
+        var books = bookService(template);
+        AnimeDTO a = animeRatingDTO("原作品");
+        BookDTO b = bookDTO();
+        b.setName("原作品");
+        a.setIsPublic(true);
+        b.setIsPublic(true);
+        Long id = transaction.execute(status -> type.equals("ANIME")
+                ? animeService.createAnime(a).getId() : books.createBook(b).getId());
+        jdbc.execute("CREATE TRIGGER reject_visibility BEFORE INSERT ON work_visibility WHEN NEW.is_public = FALSE "
+                + "BEGIN SELECT RAISE(ABORT, '模拟状态写入失败'); END");
+        a.setIsPublic(false);
+        b.setIsPublic(false);
+        a.setName("新增失败");
+        b.setName("新增失败");
+        var creationError = assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> transaction.execute(status -> type.equals("ANIME")
+                        ? animeService.createAnime(a) : books.createBook(b)));
+        assertTrue(creationError.getMessage().contains("模拟状态写入失败"));
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class));
+        a.setId(id);
+        b.setId(id);
+        a.setName("修改失败");
+        b.setName("修改失败");
+        var updateError = assertThrows(org.springframework.dao.DataAccessException.class,
+                () -> transaction.execute(status -> type.equals("ANIME")
+                        ? animeService.updateAnime(a) : books.updateBook(b)));
+        assertTrue(updateError.getMessage().contains("模拟状态写入失败"));
+        assertEquals("原作品", jdbc.queryForObject("SELECT name FROM " + table + " WHERE id=?", String.class, id));
+        assertTrue(jdbc.queryForObject("SELECT is_public FROM work_visibility WHERE target_type=? AND target_id=?",
+                Boolean.class, type, id));
+        jdbc.execute("CREATE TRIGGER reject_visibility_delete BEFORE DELETE ON work_visibility "
+                + "BEGIN SELECT RAISE(ABORT, '模拟状态清理失败'); END");
+        var deletionError = assertThrows(org.springframework.dao.DataAccessException.class, () -> transaction.execute(status -> {
+            if (type.equals("ANIME")) animeService.deleteAnime(List.of(id));
+            else books.deleteBooks(List.of(id));
+            return null;
+        }));
+        assertTrue(deletionError.getMessage().contains("模拟状态清理失败"));
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE id=?", Long.class, id));
+        assertTrue(type.equals("ANIME") ? animeService.getAnimeById(id).getIsPublic() : books.getBookById(id).getIsPublic());
     }
 
     @Test
@@ -1062,6 +1210,12 @@ class SortOrderMapperTests {
             if (failSecondWork) assertEquals("W2", result.path("rowKey").asText());
         }
         assertEquals(failSecondWork ? 0L : 2L, realJdbc.queryForObject("SELECT count(*) FROM book", Long.class));
+        if (!failSecondWork) {
+            // 旧版模板及缓存未携带开关时，新导入作品仍按公开返回。
+            for (Book book : session.getMapper(BookMapper.class).selectList(null)) {
+                assertTrue(bookService().getBookById(book.getId()).getIsPublic());
+            }
+        }
         for (String table : List.of("series", "tag", "company", "person")) {
             assertEquals(failSecondWork ? 0L : 1L, realJdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE name=?", Long.class, "新资料"));
         }
@@ -1587,8 +1741,14 @@ class SortOrderMapperTests {
     }
 
     private AnimeServiceImpl animeRatingService() {
+        return animeRatingService(session);
+    }
+
+    /** 事务回归使用同一组真实 Mapper，复用现有动画服务装配。 */
+    private AnimeServiceImpl animeRatingService(SqlSession source) {
         AnimeServiceImpl service = new AnimeServiceImpl();
         java.util.Map<String, Class<?>> mappers = java.util.Map.ofEntries(
+                java.util.Map.entry("workVisibilityMapper", WorkVisibilityMapper.class),
                 java.util.Map.entry("animeMapper", AnimeMapper.class), java.util.Map.entry("broadcastTypeMapper", BroadcastTypeMapper.class),
                 java.util.Map.entry("adaptationTypeMapper", AdaptationTypeMapper.class), java.util.Map.entry("regionMapper", RegionMapper.class),
                 java.util.Map.entry("companyMapper", CompanyMapper.class), java.util.Map.entry("companyRelationMapper", CompanyRelationMapper.class),
@@ -1597,7 +1757,7 @@ class SortOrderMapperTests {
                 java.util.Map.entry("tagMapper", TagMapper.class), java.util.Map.entry("tagRelationMapper", TagRelationMapper.class),
                 java.util.Map.entry("seriesMapper", SeriesMapper.class), java.util.Map.entry("seriesItemMapper", SeriesItemMapper.class),
                 java.util.Map.entry("personalRatingMapper", PersonalRatingMapper.class));
-        mappers.forEach((field, mapper) -> ReflectionTestUtils.setField(service, field, session.getMapper(mapper)));
+        mappers.forEach((field, mapper) -> ReflectionTestUtils.setField(service, field, source.getMapper(mapper)));
         return service;
     }
 
@@ -1629,6 +1789,7 @@ class SortOrderMapperTests {
     private BookServiceImpl bookService(SqlSession source) {
         BookServiceImpl service = new BookServiceImpl();
         java.util.Map<String, Class<?>> mappers = java.util.Map.ofEntries(
+                java.util.Map.entry("workVisibilityMapper", WorkVisibilityMapper.class),
                 java.util.Map.entry("bookMapper", BookMapper.class), java.util.Map.entry("bookTypeMapper", BookTypeMapper.class),
                 java.util.Map.entry("adaptationTypeMapper", AdaptationTypeMapper.class), java.util.Map.entry("regionMapper", RegionMapper.class),
                 java.util.Map.entry("companyMapper", CompanyMapper.class), java.util.Map.entry("companyRelationMapper", CompanyRelationMapper.class),

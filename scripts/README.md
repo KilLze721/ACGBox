@@ -18,6 +18,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File 'D:\ACGBox\ACGBox\script
 
 1. 以随机名称创建 PostgreSQL 和 Redis 临时容器，端口仅绑定本机且由 Docker 自动分配，不复用之前手动创建的测试容器。
 2. 只读挂载当前 `sql/public.sql` 初始化新数据库。当前脚本已包含 `data_import_batch`，无需另一个增量文件；初始化后检查关键表。
+   随后仅在本次临时库建立 `work_visibility` 测试表，不执行业务库的增量脚本。
 3. 随机生成测试数据库密码和 JWT 密钥，通过当前进程的 `SPRING_APPLICATION_JSON` 覆盖测试连接，关闭真实邮件及 COS 上传。
 4. 在后端根目录执行 `mvn -ntp -pl acgbox-app -am test`，运行现有单元测试及集成测试。
 5. 成功或发生普通异常时通过 `finally` 回收本次容器、丢弃临时数据、恢复原环境变量和工作目录。测试失败返回非零退出码，报告保留在 `acgbox-app/target/surefire-reports`。

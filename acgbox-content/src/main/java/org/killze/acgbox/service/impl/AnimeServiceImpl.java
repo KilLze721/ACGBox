@@ -26,6 +26,7 @@ import org.killze.acgbox.mapper.SeriesItemMapper;
 import org.killze.acgbox.mapper.SeriesMapper;
 import org.killze.acgbox.mapper.TagMapper;
 import org.killze.acgbox.mapper.TagRelationMapper;
+import org.killze.acgbox.mapper.WorkVisibilityMapper;
 import org.killze.acgbox.service.AnimeService;
 import org.killze.acgbox.vo.common.PageVO;
 import org.killze.acgbox.vo.content.AdaptationTypeVO;
@@ -72,6 +73,10 @@ public class AnimeServiceImpl implements AnimeService {
 
     @Autowired
     private AnimeMapper animeMapper;
+
+    /** 独立公开状态与动画保存、删除共用当前事务。 */
+    @Autowired
+    private WorkVisibilityMapper workVisibilityMapper;
 
     @Autowired
     private BroadcastTypeMapper broadcastTypeMapper;
@@ -150,6 +155,9 @@ public class AnimeServiceImpl implements AnimeService {
                 .updatedAt(LocalDateTime.now())
                 .build();
         animeMapper.insert(anime);
+        if (animeDTO.getIsPublic() != null) {
+            workVisibilityMapper.save("ANIME", anime.getId(), animeDTO.getIsPublic());
+        }
         // 创建动画人物关联，关联目标由当前动画确定。
         saveAnimePersons(anime.getId(), persons);
         // 创建动画别名。
@@ -269,6 +277,7 @@ public class AnimeServiceImpl implements AnimeService {
     ) {
         return AnimeVO.builder()
                 .id(anime.getId())
+                .isPublic(workVisibilityMapper.selectStates("ANIME", List.of(anime.getId())).getOrDefault(anime.getId(), true))
                 .name(anime.getName())
                 .episodeCount(anime.getEpisodeCount())
                 .broadcastTypeId(anime.getBroadcastTypeId())
@@ -400,6 +409,7 @@ public class AnimeServiceImpl implements AnimeService {
         // 构建动画详情信息
         return AnimeVO.builder()
                 .id(anime.getId())
+                .isPublic(workVisibilityMapper.selectStates("ANIME", List.of(anime.getId())).getOrDefault(anime.getId(), true))
                 .name(anime.getName())
                 .episodeCount(anime.getEpisodeCount())
                 .broadcastTypeId(anime.getBroadcastTypeId())
@@ -601,6 +611,10 @@ public class AnimeServiceImpl implements AnimeService {
         replaceAnimeTags(anime.getId(), tagIds);
         replaceAnimeSeries(anime.getId(), seriesId);
         saveOrUpdatePersonalRating(anime.getId(), animeDTO.getPersonalRatingScore());
+        // 旧客户端省略或传 null 时不覆盖已有的隐藏状态。
+        if (animeDTO.getIsPublic() != null) {
+            workVisibilityMapper.save("ANIME", anime.getId(), animeDTO.getIsPublic());
+        }
         // 返回修改后的动画完整信息。
         return getAnimeById(anime.getId());
     }
@@ -794,6 +808,7 @@ public class AnimeServiceImpl implements AnimeService {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException("请选择要删除的动画");
         }
+        workVisibilityMapper.deleteByTargets("ANIME", ids);
         // 删除动画别名。
         aliasMapper.delete(
                 new LambdaQueryWrapper<Alias>()
@@ -1123,6 +1138,7 @@ public class AnimeServiceImpl implements AnimeService {
             return List.of();
         }
         List<Long> animeIds = animeList.stream().map(Anime::getId).toList();
+        Map<Long, Boolean> publicStates = workVisibilityMapper.selectStates("ANIME", animeIds);
         Map<Long, List<String>> aliasNamesMap = buildPageAliasNamesMap(animeIds);
         Map<Long, List<TagVO>> tagsMap = buildPageTagsMap(animeIds);
         Map<Long, List<AnimeCompanyVO>> companiesMap = buildPageCompaniesMap(animeIds);
@@ -1160,6 +1176,7 @@ public class AnimeServiceImpl implements AnimeService {
                     Region region = regionMap.get(anime.getRegionId());
                     return AnimePageVO.builder()
                             .id(anime.getId())
+                            .isPublic(publicStates.getOrDefault(anime.getId(), true))
                             .name(anime.getName())
                             .aliasNames(aliasNamesMap.getOrDefault(anime.getId(), List.of()))
                             .tags(tagsMap.getOrDefault(anime.getId(), List.of()))

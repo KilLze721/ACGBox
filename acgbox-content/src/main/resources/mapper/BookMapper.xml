@@ -8,7 +8,10 @@
                b.created_at, b.updated_at
         FROM book b
         LEFT JOIN personal_rating pr ON pr.target_type = 'BOOK' AND pr.target_id = b.id
+        LEFT JOIN work_visibility wv ON wv.target_type = 'BOOK' AND wv.target_id = b.id
         <where>
+            <!-- 与管理列表共用筛选，按条件导出也遵守公开开关。 -->
+            <if test="pageDTO.isPublic != null">AND COALESCE(wv.is_public, TRUE) = #{pageDTO.isPublic}</if>
             <if test="pageDTO.keyword != null">
                 AND (LOWER(b.name) LIKE '%' || LOWER(#{pageDTO.keyword}) || '%'
                   OR EXISTS (SELECT 1 FROM alias al WHERE al.target_type = 'BOOK' AND al.target_id = b.id

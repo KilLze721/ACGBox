@@ -14,6 +14,8 @@ import java.util.List;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class AnimePageDTO extends PageDTO {
+    /** 可选公开状态筛选，null 表示全部。 */
+    private Boolean isPublic;
 
     /**
      * 动画名称、别名或系列名称关键词

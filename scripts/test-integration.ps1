@@ -76,6 +76,16 @@ try {
     if ($LASTEXITCODE -ne 0 -or $testTables -ne '1') {
         throw '测试库关键表未创建完成，请检查 sql/public.sql。'
     }
+    # 仅给本次新建的临时库补齐状态表，不读取业务库或执行待用户确认的增量脚本。
+    & $testDocker exec $testPostgres psql -U acgbox_it -d acgbox_it -v ON_ERROR_STOP=1 -c @"
+CREATE TABLE IF NOT EXISTS public.work_visibility (
+    target_type varchar(16) NOT NULL CHECK (target_type IN ('ANIME', 'BOOK')),
+    target_id integer NOT NULL,
+    is_public boolean NOT NULL DEFAULT true,
+    PRIMARY KEY (target_type, target_id)
+);
+"@ | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw '临时测试库的作品公开状态表创建失败。' }
     $testPgAddress = & $testDocker port $testPostgres '5432/tcp'
     if ($LASTEXITCODE -ne 0) { throw '无法读取 PostgreSQL 测试端口。' }
     $testRedisAddress = & $testDocker port $testRedis '6379/tcp'

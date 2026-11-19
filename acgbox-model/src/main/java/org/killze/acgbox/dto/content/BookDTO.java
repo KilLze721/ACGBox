@@ -14,6 +14,8 @@ import java.util.List;
  */
 @Data
 public class BookDTO {
+    /** 公开开关；新增 null 默认公开，修改 null 保留原状态。 */
+    private Boolean isPublic;
     /**
      * 书籍 ID，由数据库生成。
      */

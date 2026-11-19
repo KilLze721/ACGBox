@@ -117,6 +117,7 @@ class SortOrderAcceptanceTests {
             return ids.stream().map(id -> Company.builder().id(id).name("公司" + id).build()).toList();
         });
         animeService = new AnimeServiceImpl();
+        ReflectionTestUtils.setField(animeService, "workVisibilityMapper", mock(org.killze.acgbox.mapper.WorkVisibilityMapper.class));
         ReflectionTestUtils.setField(animeService, "animeMapper", animeMapper);
         ReflectionTestUtils.setField(animeService, "aliasMapper", aliasMapper);
         ReflectionTestUtils.setField(animeService, "companyRelationMapper", relationMapper);

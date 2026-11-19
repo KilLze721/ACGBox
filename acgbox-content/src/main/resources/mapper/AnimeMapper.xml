@@ -22,7 +22,12 @@
         LEFT JOIN personal_rating pr
           ON pr.target_type = 'ANIME'
          AND pr.target_id = a.id
+        LEFT JOIN work_visibility wv ON wv.target_type = 'ANIME' AND wv.target_id = a.id
         <where>
+            <!-- 无状态记录默认公开；显式 false 同样参与过滤和总数统计。 -->
+            <if test="pageDTO.isPublic != null">
+                AND COALESCE(wv.is_public, TRUE) = #{pageDTO.isPublic}
+            </if>
             <if test="pageDTO.keyword != null">
                 AND (
                     LOWER(a.name) LIKE '%' || LOWER(#{pageDTO.keyword}) || '%'

@@ -13,6 +13,8 @@ import org.killze.acgbox.validation.IntegerScore;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class BookPageDTO extends PageDTO {
+    /** 可选公开状态筛选，null 表示全部。 */
+    private Boolean isPublic;
     /**
      * 书名、BOOK 别名或所属系列名，忽略字母大小写。
      */

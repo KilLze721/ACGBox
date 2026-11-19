@@ -40,6 +40,9 @@ import java.util.stream.Collectors;
 public class BookServiceImpl implements BookService {
     @Autowired
     private BookMapper bookMapper;
+    /** 通过独立状态表批量读取和保存，不映射为 book 的物理列。 */
+    @Autowired
+    private WorkVisibilityMapper workVisibilityMapper;
     @Autowired
     private BookTypeMapper bookTypeMapper;
     @Autowired
@@ -82,6 +85,9 @@ public class BookServiceImpl implements BookService {
         PreparedBook prepared = prepare(dto, null);
         Long seriesId = resolveSeries(dto, prepared.book().getName(), true);
         bookMapper.insert(prepared.book());
+        if (dto.getIsPublic() != null) {
+            workVisibilityMapper.save("BOOK", prepared.book().getId(), dto.getIsPublic());
+        }
         saveRelations(prepared.book().getId(), prepared);
         saveSeries(prepared.book().getId(), seriesId);
         saveRating(prepared.book().getId(), dto.getPersonalRatingScore());
@@ -111,6 +117,10 @@ public class BookServiceImpl implements BookService {
         saveRelations(book.getId(), prepared);
         saveSeries(book.getId(), seriesId);
         saveRating(book.getId(), dto.getPersonalRatingScore());
+        // 更新不传公开开关时保留原状态。
+        if (dto.getIsPublic() != null) {
+            workVisibilityMapper.save("BOOK", book.getId(), dto.getIsPublic());
+        }
         return getBookById(book.getId());
     }
 
@@ -133,6 +143,7 @@ public class BookServiceImpl implements BookService {
         if (bookMapper.deleteByIds(targets) != targets.size()) {
             throw new BusinessException("所选书籍已发生变化，请刷新后重试");
         }
+        workVisibilityMapper.deleteByTargets("BOOK", targets);
     }
 
     @Override
@@ -398,6 +409,7 @@ public class BookServiceImpl implements BookService {
             return List.of();
         }
         List<Long> ids = books.stream().map(Book::getId).toList();
+        var publicStates = workVisibilityMapper.selectStates("BOOK", ids);
         var aliases = group(aliasMapper.selectList(new LambdaQueryWrapper<Alias>().eq(Alias::getTargetType, "BOOK")
                 .in(Alias::getTargetId, ids).orderByAsc(Alias::getSortOrder).orderByAsc(Alias::getId)), Alias::getTargetId);
         var companies = group(companyRelationMapper.selectList(new LambdaQueryWrapper<CompanyRelation>()
@@ -424,6 +436,7 @@ public class BookServiceImpl implements BookService {
             List<SeriesItem> items = series.getOrDefault(id, List.of());
             PersonalRating rating = ratings.get(id);
             return BookVO.builder().id(id).name(book.getName()).bookTypeId(book.getBookTypeId())
+                    .isPublic(publicStates.getOrDefault(id, true))
                     .adaptationTypeId(book.getAdaptationTypeId()).regionId(book.getRegionId()).publishDate(book.getPublishDate())
                     .coverImageUrl(book.getCoverImageUrl()).status(book.getStatus()).volumeCount(book.getVolumeCount())
                     .chapterCount(book.getChapterCount()).description(book.getDescription()).createdAt(book.getCreatedAt()).updatedAt(book.getUpdatedAt())
@@ -464,6 +477,7 @@ public class BookServiceImpl implements BookService {
             Region region = regions.get(value.getRegionId());
             Series item = series.get(value.getSeriesId());
             return BookPageVO.builder().id(value.getId()).name(value.getName()).status(value.getStatus())
+                    .isPublic(value.getIsPublic())
                     .publishDate(value.getPublishDate()).coverImageUrl(value.getCoverImageUrl()).volumeCount(value.getVolumeCount())
                     .chapterCount(value.getChapterCount()).createdAt(value.getCreatedAt()).updatedAt(value.getUpdatedAt())
                     .bookType(type == null ? null : BookTypeVO.builder().id(type.getId()).name(type.getName()).sortOrder(type.getSortOrder()).build())

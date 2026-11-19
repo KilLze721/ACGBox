@@ -15,6 +15,8 @@ import java.util.List;
  */
 @Data
 public class AnimeDTO {
+    /** 公开开关；新增 null 默认公开，修改 null 保留原状态。 */
+    private Boolean isPublic;
 
     /**
      * 动画 ID
