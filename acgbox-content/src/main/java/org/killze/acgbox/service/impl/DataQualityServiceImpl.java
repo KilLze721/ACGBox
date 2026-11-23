@@ -76,27 +76,36 @@ public class DataQualityServiceImpl {
             ORDER BY paged.updated_at DESC, paged.id DESC
             """;
 
-    // 公司和系列复用人物的同名检查，只替换白名单内的表名。
+    // 三类档案共用查询，仅替换预先限定的档案表、关系表和引用字段。
     private static final String PERSON_SQL = """
             WITH named AS (
                 SELECT id, name, description, updated_at,
                        COUNT(*) OVER (PARTITION BY
                            translate(btrim(name, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz') COLLATE "C") AS duplicate_count
-                FROM %s
+                FROM %1$s
             ), scoped AS (
-                SELECT *
+                SELECT named.*,
+                       CASE WHEN duplicate_count > 1 THEN 1 ELSE 0 END AS same_name_review,
+                       CASE WHEN NOT EXISTS (
+                           SELECT 1 FROM %2$s ref WHERE ref.%3$s = named.id
+                       ) THEN 1 ELSE 0 END AS unreferenced
                 FROM named
                 WHERE strpos(translate(name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'),
                              translate(btrim(?, ?), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz')) > 0
+            ), checked AS (
+                SELECT scoped.*, same_name_review * ? + unreferenced * ? AS selected_hits
+                FROM scoped
             ), summary AS (
                 SELECT COUNT(*) AS scope_total,
-                       COUNT(CASE WHEN duplicate_count > 1 THEN 1 END) AS count_same_name
-                FROM scoped
+                       COALESCE(SUM(same_name_review), 0) AS count_same_name,
+                       COALESCE(SUM(unreferenced), 0) AS count_unreferenced,
+                       COUNT(CASE WHEN selected_hits >= ? THEN 1 END) AS total
+                FROM checked
             ), paged AS (
-                SELECT scoped.*, 1 AS same_name_review FROM scoped WHERE duplicate_count > 1
+                SELECT * FROM checked WHERE selected_hits >= ?
                 ORDER BY updated_at DESC, id DESC LIMIT ? OFFSET ?
             )
-            SELECT summary.*, summary.count_same_name AS total, paged.*
+            SELECT summary.*, paged.*
             FROM summary LEFT JOIN paged ON TRUE
             ORDER BY paged.updated_at DESC, paged.id DESC
             """;
@@ -108,7 +117,8 @@ public class DataQualityServiceImpl {
         MISSING_COMPANY("缺公司", "missing_company", "count_company"),
         MISSING_TAG("缺标签", "missing_tag", "count_tag"),
         MISSING_DATE("缺日期", "missing_date", "count_date"),
-        SAME_NAME_REVIEW("同名待核对", "same_name_review", "count_same_name");
+        SAME_NAME_REVIEW("同名待核对", "same_name_review", "count_same_name"),
+        UNREFERENCED("无引用", "unreferenced", "count_unreferenced");
 
         final String message;
         final String hitColumn;
@@ -121,6 +131,9 @@ public class DataQualityServiceImpl {
         }
     }
 
+    /** 档案规则独立于作品规则，统计也只返回当前类型支持的规则。 */
+    private static final EnumSet<Rule> CATALOG_RULES = EnumSet.of(Rule.SAME_NAME_REVIEW, Rule.UNREFERENCED);
+
     private final JdbcTemplate jdbc;
 
     public DataQualityServiceImpl(JdbcTemplate jdbc) {
@@ -130,13 +143,13 @@ public class DataQualityServiceImpl {
     public DataQualityPageVO pageDataQuality(DataQualityPageDTO dto) {
         String target = dto.getTargetType();
         boolean anime = "ANIME".equals(target);
-        String catalogTable = switch (target == null ? "" : target) {
-            case "PERSON" -> "person";
-            case "COMPANY" -> "company";
-            case "SERIES" -> "series";
+        String catalogSql = switch (target == null ? "" : target) {
+            case "PERSON" -> PERSON_SQL.formatted("person", "person_relation", "person_id");
+            case "COMPANY" -> PERSON_SQL.formatted("company", "company_relation", "company_id");
+            case "SERIES" -> PERSON_SQL.formatted("series", "series_item", "series_id");
             default -> null;
         };
-        if (!anime && catalogTable == null && !"BOOK".equals(target)) {
+        if (!anime && catalogSql == null && !"BOOK".equals(target)) {
             throw new BusinessException("targetType 必须为 ANIME、BOOK、PERSON、COMPANY 或 SERIES");
         }
         String mode = dto.getMatchMode();
@@ -150,8 +163,11 @@ public class DataQualityServiceImpl {
                 throw new BusinessException("ruleCodes 包含未知检查规则");
             }
         }
-        if (catalogTable != null && !rules.equals(EnumSet.of(Rule.SAME_NAME_REVIEW))) {
-            throw new BusinessException(target + " 仅支持 SAME_NAME_REVIEW 检查规则");
+        if (catalogSql != null && !CATALOG_RULES.containsAll(rules)) {
+            throw new BusinessException(target + " 仅支持 SAME_NAME_REVIEW 和 UNREFERENCED 检查规则");
+        }
+        if (catalogSql == null && rules.contains(Rule.UNREFERENCED)) {
+            throw new BusinessException(target + " 不支持 UNREFERENCED 检查规则");
         }
         Long pageNum = dto.getPageNum();
         Long pageSize = dto.getPageSize();
@@ -161,10 +177,12 @@ public class DataQualityServiceImpl {
         String keyword = dto.getKeyword() == null ? "" : dto.getKeyword();
         // 单条查询共享同一读取视图；汇总行保证空结果和超页仍有统计。
         ResultSetExtractor<DataQualityPageVO> result = rs -> assemble(rs, target, rules, pageNum, pageSize);
-        if (catalogTable != null) {
-            return jdbc.query(PERSON_SQL.formatted(catalogTable), result, WHITESPACE, keyword, WHITESPACE, pageSize, offset);
-        }
         int minimum = "ALL".equals(mode) ? rules.size() : 1;
+        if (catalogSql != null) {
+            return jdbc.query(catalogSql, result, WHITESPACE, keyword, WHITESPACE,
+                    rules.contains(Rule.SAME_NAME_REVIEW) ? 1 : 0, rules.contains(Rule.UNREFERENCED) ? 1 : 0,
+                    minimum, minimum, pageSize, offset);
+        }
         String sql = anime ? SQL.formatted("broadcast_type_id", "", "anime", "broadcast_type", "air_date")
                 : SQL.formatted("book_type_id", "w.book_type_id, ", "book", "book_type", "publish_date");
         return jdbc.query(sql, result,
@@ -186,7 +204,9 @@ public class DataQualityServiceImpl {
         long total = rs.getLong("total");
         var counts = new LinkedHashMap<String, Long>();
         for (Rule rule : Rule.values()) {
-            if (!catalog || rule == Rule.SAME_NAME_REVIEW) counts.put(rule.name(), rs.getLong(rule.countColumn));
+            if (catalog ? CATALOG_RULES.contains(rule) : rule != Rule.UNREFERENCED) {
+                counts.put(rule.name(), rs.getLong(rule.countColumn));
+            }
         }
         var summary = new Summary(rs.getLong("scope_total"), counts);
         var rows = new ArrayList<Row>();

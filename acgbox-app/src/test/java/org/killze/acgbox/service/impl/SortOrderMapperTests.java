@@ -1400,6 +1400,14 @@ class SortOrderMapperTests {
                         "2026-11-11", "2026-11-11 12:00:00.000");
             }
         }
+        // 同名组中的一个档案已被隐藏动画引用，其他同名档案仍可命中无引用。
+        jdbc.update("INSERT INTO anime (id,name) VALUES (9,'隐藏动画')");
+        jdbc.update("INSERT INTO work_visibility (target_type,target_id,is_public) VALUES ('ANIME',9,FALSE)");
+        jdbc.update(switch (targetType) {
+            case "PERSON" -> "INSERT INTO person_relation (person_id,target_type,target_id,role) VALUES (2,'ANIME',9,'导演')";
+            case "COMPANY" -> "INSERT INTO company_relation (company_id,target_type,target_id) VALUES (2,'ANIME',9)";
+            default -> "INSERT INTO series_item (series_id,work_type,work_id) VALUES (2,'anime',9)";
+        });
         var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
                 new org.killze.acgbox.controller.DataQualityController(new DataQualityServiceImpl(jdbc)))
                 .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
@@ -1413,7 +1421,7 @@ class SortOrderMapperTests {
         assertEquals(3, result.path("total").asInt());
         assertEquals(2, result.path("pages").asInt());
         assertEquals(4, result.path("summary").path("scopeTotal").asInt());
-        assertEquals(json.readTree("{\"SAME_NAME_REVIEW\":3}"), result.path("summary").path("ruleCounts"));
+        assertEquals(json.readTree("{\"SAME_NAME_REVIEW\":3,\"UNREFERENCED\":3}"), result.path("summary").path("ruleCounts"));
         var rows = result.path("rows");
         assertEquals(2, rows.size());
         assertEquals(targetType, rows.get(0).path("targetType").asText());
@@ -1434,11 +1442,35 @@ class SortOrderMapperTests {
         assertEquals(3L, next.path("rows").get(0).path("targetId").asLong());
         assertEquals(3L, next.path("rows").get(0).path("duplicateCount").asLong());
 
+        var unreferencedRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", targetType).param("ruleCodes", "UNREFERENCED").param("keyword", "alice").param("pageSize", "2");
+        var unreferenced = json.readTree(mvc.perform(unreferencedRequest).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(3, unreferenced.path("total").asInt());
+        assertEquals(2, unreferenced.path("pages").asInt());
+        assertEquals(result.path("summary"), unreferenced.path("summary"));
+        assertEquals(4L, unreferenced.path("rows").get(0).path("targetId").asLong());
+        assertEquals("UNREFERENCED", unreferenced.path("rows").get(0).path("issues").get(0).path("code").asText());
+        assertTrue(unreferenced.path("rows").get(0).path("duplicateCount").isNull());
+        assertEquals(1L, unreferenced.path("rows").get(1).path("targetId").asLong());
+
+        var combined = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
+                .param("targetType", targetType).param("ruleCodes", "SAME_NAME_REVIEW,UNREFERENCED").param("keyword", "alice");
+        var any = json.readTree(mvc.perform(combined).andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(4, any.path("total").asInt());
+        assertEquals(1, any.path("rows").get(1).path("issues").size());
+        assertEquals(2L, any.path("rows").get(1).path("targetId").asLong());
+        var all = json.readTree(mvc.perform(combined.param("matchMode", "ALL"))
+                .andReturn().getResponse().getContentAsByteArray()).path("data");
+        assertEquals(2, all.path("total").asInt());
+        assertEquals(2, all.path("rows").get(0).path("issues").size());
+        assertEquals(3L, all.path("rows").get(0).path("duplicateCount").asLong());
+        assertEquals(result.path("summary"), all.path("summary"));
+
         var invalid = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/data-quality/page")
                 .param("targetType", targetType).param("ruleCodes", "SAME_NAME_REVIEW,MISSING_COVER");
         var error = json.readTree(mvc.perform(invalid).andReturn().getResponse().getContentAsByteArray());
         assertEquals(500, error.path("code").asInt());
-        assertEquals(targetType + " 仅支持 SAME_NAME_REVIEW 检查规则", error.path("message").asText());
+        assertEquals(targetType + " 仅支持 SAME_NAME_REVIEW 和 UNREFERENCED 检查规则", error.path("message").asText());
     }
 
     @Test
