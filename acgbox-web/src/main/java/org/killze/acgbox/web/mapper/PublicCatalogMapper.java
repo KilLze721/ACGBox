@@ -2,8 +2,8 @@ package org.killze.acgbox.web.mapper;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.apache.ibatis.annotations.Param;
+import org.killze.acgbox.dto.web.PublicCatalogPageDTO;
 import org.killze.acgbox.entity.content.Tag;
-import org.killze.acgbox.web.dto.PublicCatalogPageDTO;
 
 import java.time.LocalDate;
 import java.util.List;

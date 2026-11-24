@@ -16,15 +16,15 @@
     <name>acgbox-web</name>
     <description>用户端后端模块</description>
     <dependencies>
+        <!-- 用户端请求和响应模型统一由数据模型模块维护。 -->
+        <dependency>
+            <groupId>org.killze</groupId>
+            <artifactId>acgbox-model</artifactId>
+        </dependency>
         <!-- 复用内容字典、关联查询和标签排序，不依赖后台控制器。 -->
         <dependency>
             <groupId>org.killze</groupId>
             <artifactId>acgbox-content</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>org.projectlombok</groupId>
-            <artifactId>lombok</artifactId>
-            <optional>true</optional>
         </dependency>
     </dependencies>
 </project>

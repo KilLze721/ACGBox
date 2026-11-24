@@ -23,7 +23,8 @@ ACGBox/
 │   ├── entity/content/          # MyBatis Plus 实体，映射数据库表
 │   ├── dto/content/             # 请求体 DTO（含 @Valid 校验注解）
 │   ├── dto/common/              # 通用 DTO（分页 PageDTO）
-│   └── vo/content/ & vo/common/ # 响应视图对象，用 @Builder 构建
+│   ├── vo/content/ & vo/common/ # 内容与通用响应视图对象
+│   └── dto/web/ & vo/web/       # 用户端请求和响应模型
 ├── acgbox-common/               # 共享基础设施
 │   ├── config/MybatisPlusConfig # MyBatis Plus 分页插件配置（PostgreSQL）
 │   ├── exception/               # BusinessException + GlobalExceptionHandler
@@ -42,7 +43,7 @@ ACGBox/
 └── sql/public.sql               # 数据库建表脚本
 ```
 
-**依赖方向**：`app` 依赖 `content`、`user` 和 `web`；`content` 与 `user` 均依赖 `model` 和 `common`。`web` 复用 `content` 的内容字典和关联查询能力。
+**依赖方向**：`app` 依赖 `content`、`user` 和 `web`；`content` 与 `user` 均依赖 `model` 和 `common`。`web` 从 `model` 引用用户端 DTO、VO，复用 `content` 的内容字典和关联查询能力。
 
 `acgbox-web` 随 `acgbox-app` 打包，共用现有应用和数据库。游客可通过 `/web/anime` 和 `/web/book` 下的 `GET /page`、`GET /filters` 访问公开目录，不用登录；隐藏作品不返回，管理端权限不变。
 

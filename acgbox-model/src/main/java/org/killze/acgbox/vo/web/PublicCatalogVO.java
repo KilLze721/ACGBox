@@ -1,4 +1,4 @@
-package org.killze.acgbox.web.vo;
+package org.killze.acgbox.vo.web;
 
 import org.killze.acgbox.vo.content.TagVO;
 

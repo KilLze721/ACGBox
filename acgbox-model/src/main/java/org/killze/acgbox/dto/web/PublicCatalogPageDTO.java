@@ -1,4 +1,4 @@
-package org.killze.acgbox.web.dto;
+package org.killze.acgbox.dto.web;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;

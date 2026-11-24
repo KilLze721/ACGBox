@@ -1,10 +1,10 @@
 package org.killze.acgbox.web.controller;
 
+import org.killze.acgbox.dto.web.PublicCatalogPageDTO;
 import org.killze.acgbox.result.Result;
 import org.killze.acgbox.vo.common.PageVO;
-import org.killze.acgbox.web.dto.PublicCatalogPageDTO;
+import org.killze.acgbox.vo.web.PublicCatalogVO;
 import org.killze.acgbox.web.service.PublicCatalogService;
-import org.killze.acgbox.web.vo.PublicCatalogVO;
 import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
