@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /** 公司、人物、系列和标签共用的首字母排序。 */
-final class CatalogNameInitialPage {
+public final class CatalogNameInitialPage {
 
     private static final int OTHER_INITIAL = 'Z' + 1;
 
@@ -54,7 +54,8 @@ final class CatalogNameInitialPage {
         return page;
     }
 
-    static List<TagVO> tagViews(Stream<Tag> tags) {
+    /** 为管理和公开目录复用同一套标签首字母排序。 */
+    public static List<TagVO> tagViews(Stream<Tag> tags) {
         return tags.sorted(Comparator.comparingInt((Tag tag) -> initial(tag.getName()))
                         .thenComparing(Tag::getUpdatedAt, Comparator.nullsLast(Comparator.reverseOrder()))
                         .thenComparing(Tag::getId, Comparator.reverseOrder()))

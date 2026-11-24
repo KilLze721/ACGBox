@@ -1,6 +1,6 @@
 # ACGBox
 
-本仓库提供 ACGBox 管理端的 REST API，涵盖动画、书籍、关联资料、基础字典和账号管理。
+本仓库提供 ACGBox 管理端 REST API，以及游客可访问的动画、书籍目录。
 
 ## 技术栈
 
@@ -35,16 +35,16 @@ ACGBox/
 │   ├── service/ + service/impl/ # 服务层
 │   ├── mapper/                  # MyBatis Plus Mapper 接口
 │   └── resources/mapper/        # 复杂查询的自定义 SQL XML
-├── acgbox-web/                  # 用户端后端模块（当前仅有构建骨架）
+├── acgbox-web/                  # 用户端后端模块（公开目录与筛选项）
 ├── acgbox-app/                  # 启动模块（Spring Boot 入口，端口 8080）
 │   ├── AcgBoxApplication        # 唯一启动类
 │   └── resources/application.yml # 数据源与 MyBatis Plus 配置
 └── sql/public.sql               # 数据库建表脚本
 ```
 
-**依赖方向**：`app` 依赖 `content`、`user` 和 `web`；`content` 与 `user` 均依赖 `model` 和 `common`。`web` 当前没有业务依赖。
+**依赖方向**：`app` 依赖 `content`、`user` 和 `web`；`content` 与 `user` 均依赖 `model` 和 `common`。`web` 复用 `content` 的内容字典和关联查询能力。
 
-`acgbox-web` 用于承载用户端公开目录及登录后的个人业务入口，随 `acgbox-app` 一起打包，共用现有应用和数据库。后续用户端 Java 类型可放在 `org.killze.acgbox.web` 包下；当前不提供用户端接口，也不改变现有访问权限。
+`acgbox-web` 随 `acgbox-app` 打包，共用现有应用和数据库。游客可通过 `/web/anime` 和 `/web/book` 下的 `GET /page`、`GET /filters` 访问公开目录，不用登录；隐藏作品不返回，管理端权限不变。
 
 ## 环境要求
 

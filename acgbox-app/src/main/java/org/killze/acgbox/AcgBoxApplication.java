@@ -6,7 +6,8 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Import;
 
-@MapperScan({"org.killze.acgbox.mapper"})
+// 管理端与用户端使用同一个数据源，分别扫描各自的 Mapper。
+@MapperScan({"org.killze.acgbox.mapper", "org.killze.acgbox.web.mapper"})
 @SpringBootApplication
 @Import(SecurityConfig.class)
 public class AcgBoxApplication {

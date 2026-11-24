@@ -78,6 +78,9 @@ class SecurityConfigTests {
     @MockitoBean
     private org.killze.acgbox.service.SeriesService seriesService;
 
+    @MockitoBean
+    private org.killze.acgbox.web.service.PublicCatalogService publicCatalogService;
+
     private UserAccount userAccount;
 
     private MockMvc mockMvc;
@@ -400,8 +403,25 @@ class SecurityConfigTests {
     @EnableWebSecurity
     @Import({SecurityConfig.class, JwtConfig.class, TestController.class,
             org.killze.acgbox.controller.ImageUploadController.class, org.killze.acgbox.controller.DataTransferController.class,
-            org.killze.acgbox.controller.DataQualityController.class, org.killze.acgbox.controller.SeriesController.class})
+            org.killze.acgbox.controller.DataQualityController.class, org.killze.acgbox.controller.SeriesController.class,
+            org.killze.acgbox.web.controller.PublicCatalogController.class})
     static class TestConfig {
+    }
+
+    /** 四个公开入口仅豁免 GET，不放行写请求或未来的详情。 */
+    @ParameterizedTest
+    @ValueSource(strings = {"/web/anime/page", "/web/book/page", "/web/anime/filters", "/web/book/filters"})
+    void publicCatalogAllowsAnonymousReadsOnly(String path) throws Exception {
+        mockMvc.perform(get(path)).andExpect(status().isOk());
+        mockMvc.perform(post(path)).andExpect(status().isUnauthorized());
+    }
+
+    /** 公开目录不扩大管理端或尚未发布的用户端权限。 */
+    @Test
+    void catalogPermissionsDoNotExposeOtherRoutes() throws Exception {
+        mockMvc.perform(get("/web/anime/1")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/anime/page")).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/book/page")).andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest

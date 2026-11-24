@@ -131,6 +131,9 @@ class SortOrderMapperTests {
         try (var mapper = Resources.getResourceAsStream("mapper/SeriesItemMapper.xml")) {
             new XMLMapperBuilder(mapper, configuration, "mapper/SeriesItemMapper.xml", configuration.getSqlFragments()).parse();
         }
+        try (var mapper = Resources.getResourceAsStream("mapper/PublicCatalogMapper.xml")) {
+            new XMLMapperBuilder(mapper, configuration, "mapper/PublicCatalogMapper.xml", configuration.getSqlFragments()).parse();
+        }
         MybatisPlusInterceptor interceptor = new MybatisPlusInterceptor();
         interceptor.addInnerInterceptor(new PaginationInnerInterceptor(DbType.SQLITE));
         configuration.addInterceptor(interceptor);
@@ -1379,6 +1382,109 @@ class SortOrderMapperTests {
         var failure = json.readTree(failedMvc.perform(request).andReturn().getResponse().getContentAsByteArray());
         assertEquals(500, failure.path("code").asInt());
         assertFalse(failure.hasNonNull("data"));
+    }
+
+    /** 通过公开目录请求验证可见性、组合筛选及稳定分页，不连接业务库。 */
+    @ParameterizedTest
+    @CsvSource({"anime,ANIME,broadcastTypeId,broadcastTypes,broadcastType,airDate,4", "book,BOOK,bookTypeId,bookTypes,bookType,publishDate,6"})
+    void publicCatalogFiltersBeforeCountingAndPaging(String table, String type, String typeParam, String typeOptions,
+                                                    String typeField, String dateField, int statuses) throws Exception {
+        installDataQualityTextFunctions();
+        // SQLite 模拟 PostgreSQL 的日期年份提取，其余筛选和计数据实执行。
+        org.sqlite.Function.create(connection, "date_part", new org.sqlite.Function() {
+            @Override
+            protected void xFunc() throws java.sql.SQLException {
+                String date = value_text(1);
+                if (date == null) result();
+                else result(Integer.parseInt(date.substring(0, 4)));
+            }
+        });
+        seedBookCatalogs();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(session.getConfiguration().getEnvironment().getDataSource());
+        jdbc.update("INSERT INTO broadcast_type (id,name,sort_order) VALUES (1,'TV',0)");
+        jdbc.update("INSERT INTO tag (id,name) VALUES (2,'Alpha'),(3,'隐藏标签')");
+        boolean anime = type.equals("ANIME");
+        String workInsert = anime
+                ? "INSERT INTO anime (id,name,air_date,broadcast_type_id,adaptation_type_id,status) VALUES (?,?,?,1,1,3)"
+                : "INSERT INTO book (id,name,publish_date,book_type_id,adaptation_type_id,region_id,status,created_at,updated_at) "
+                        + "VALUES (?,?,?,1,1,1,3,'2024-01-01','2024-01-01')";
+        jdbc.update(workInsert, 1, "Beta", "2024-01-01");
+        jdbc.update(workInsert, 2, "beta", "2024-01-01");
+        jdbc.update(workInsert, 3, "隐藏标题", "2099-01-01");
+        jdbc.update(workInsert, 4, "Gamma", null);
+        jdbc.update(workInsert, 5, "Alpha", "2020-01-01");
+        jdbc.update("INSERT INTO work_visibility VALUES (?,3,FALSE),(?,1,FALSE)", type, anime ? "BOOK" : "ANIME");
+        jdbc.update("INSERT INTO personal_rating (target_type,target_id,score) VALUES (?,1,10)", type);
+        jdbc.update("INSERT INTO alias (target_type,target_id,alias_name) VALUES (?,1,'Moon Alias')", type);
+        jdbc.update("INSERT INTO series (id,name) VALUES (1,'Moon Series')");
+        jdbc.update("INSERT INTO series_item (series_id,work_type,work_id) VALUES (1,?,2)", table);
+        jdbc.update("INSERT INTO tag_relation (target_type,target_id,tag_id) VALUES (?,1,1),(?,1,2),(?,2,1),(?,3,3)",
+                type, type, type, type);
+        jdbc.update("INSERT INTO person_relation (target_type,target_id,person_id,role) VALUES (?,1,1,'作者')", type);
+        jdbc.update("INSERT INTO company_relation (target_type,target_id,company_id,role) VALUES (?,1,1,'出版')", type);
+
+        var adaptationService = new AdaptationTypeServiceImpl();
+        ReflectionTestUtils.setField(adaptationService, "adaptationTypeMapper", session.getMapper(AdaptationTypeMapper.class));
+        var broadcastService = new BroadcastTypeServiceImpl();
+        ReflectionTestUtils.setField(broadcastService, "broadcastTypeMapper", session.getMapper(BroadcastTypeMapper.class));
+        var controller = new org.killze.acgbox.web.controller.PublicCatalogController(new org.killze.acgbox.web.service.PublicCatalogService(
+                session.getMapper(org.killze.acgbox.web.mapper.PublicCatalogMapper.class), session.getMapper(AliasMapper.class),
+                session.getMapper(TagRelationMapper.class), session.getMapper(TagMapper.class), adaptationService, broadcastService, bookTypeService()));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller)
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        String path = "/web/" + table;
+        var first = catalogResult(mvc, path + "/page", java.util.Map.of("pageSize", "2", "isPublic", "false"));
+        assertEquals(4, first.path("total").asInt());
+        assertEquals(2, first.path("pages").asInt());
+        assertEquals(2L, first.path("rows").get(0).path("id").asLong());
+        var row = first.path("rows").get(1);
+        assertEquals(1L, row.path("id").asLong());
+        assertEquals("2024-01-01", row.path(dateField).asText());
+        assertEquals(1L, row.path(typeField).path("id").asLong());
+        assertFalse(row.has("personalRating") || row.has("createdAt") || row.has("isPublic"));
+        assertEquals("Moon Alias", row.path("aliasNames").get(0).asText());
+        assertEquals("作者", row.path("persons").get(0).path("role").asText());
+        assertEquals("出版机构", row.path("companies").get(0).path("companyName").asText());
+        assertEquals("Alpha", row.path("tags").get(0).path("name").asText());
+
+        var next = catalogResult(mvc, path + "/page", java.util.Map.of("pageSize", "2", "pageNum", "2")).path("rows");
+        assertEquals(5L, next.get(0).path("id").asLong());
+        assertEquals(4L, next.get(1).path("id").asLong());
+        var name = catalogResult(mvc, path + "/page", java.util.Map.of("sortBy", "NAME", "sortDirection", "ASC",
+                "pageSize", "2", "pageNum", "2")).path("rows");
+        assertEquals(1L, name.get(0).path("id").asLong());
+        assertEquals(4L, name.get(1).path("id").asLong());
+        var unknown = catalogResult(mvc, path + "/page", java.util.Map.of("year", "UNKNOWN"));
+        assertEquals(1L, unknown.path("total").asLong());
+        assertTrue(unknown.path("rows").get(0).path(dateField).isNull());
+        assertEquals(2L, catalogResult(mvc, path + "/page", java.util.Map.of("keyword", "Moon")).path("total").asLong());
+        var combinedRequest = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path + "/page")
+                .param("keyword", "Moon").param(typeParam, "1").param("adaptationTypeId", "1").param("year", "2024")
+                .param("status", "3").param("tagIds", "1", "2", "2");
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var combined = json.readTree(mvc.perform(combinedRequest).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(200, combined.path("code").asInt(), combined.toString());
+        assertEquals(1L, combined.path("data").path("total").asLong());
+        assertEquals(1L, combined.path("data").path("rows").get(0).path("id").asLong());
+
+        var filters = catalogResult(mvc, path + "/filters", java.util.Map.of());
+        assertEquals(json.readTree("[2024,2020]"), filters.path("years"));
+        assertTrue(filters.path("hasUnknownYear").asBoolean());
+        assertEquals(2, filters.path("tags").size());
+        assertEquals("Alpha", filters.path("tags").get(0).path("name").asText());
+        assertEquals(1L, filters.path(typeOptions).get(0).path("id").asLong());
+        assertEquals(statuses, filters.path("statuses").size());
+    }
+
+    /** 读取目录公开响应，失败时保留接口返回的错误上下文。 */
+    private tools.jackson.databind.JsonNode catalogResult(org.springframework.test.web.servlet.MockMvc mvc,
+            String path, java.util.Map<String, String> params) throws Exception {
+        var request = org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(path);
+        params.forEach((key, value) -> request.param(key, value));
+        var result = tools.jackson.databind.json.JsonMapper.builder().build()
+                .readTree(mvc.perform(request).andReturn().getResponse().getContentAsByteArray());
+        assertEquals(200, result.path("code").asInt(), result.toString());
+        return result.path("data");
     }
 
     @ParameterizedTest

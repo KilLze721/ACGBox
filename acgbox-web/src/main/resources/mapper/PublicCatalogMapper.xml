@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.killze.acgbox.web.mapper.PublicCatalogMapper">
+    <!-- 公共片段固定表和类型，公开条件由 SQL 强制执行，不依赖客户端。 -->
+    <sql id="workTable"><choose><when test="anime">anime</when><otherwise>book</otherwise></choose> w</sql>
+    <sql id="targetType"><choose><when test="anime">'ANIME'</when><otherwise>'BOOK'</otherwise></choose></sql>
+    <sql id="workType"><choose><when test="anime">'anime'</when><otherwise>'book'</otherwise></choose></sql>
+    <sql id="dateColumn"><choose><when test="anime">w.air_date</when><otherwise>w.publish_date</otherwise></choose></sql>
+    <sql id="visibilityJoin">
+        LEFT JOIN work_visibility wv ON wv.target_type = <include refid="targetType"/> AND wv.target_id = w.id
+    </sql>
+    <sql id="publicOnly">COALESCE(wv.is_public, TRUE) = TRUE</sql>
+
+    <select id="selectPage" resultType="org.killze.acgbox.web.mapper.PublicCatalogMapper$WorkRow">
+        SELECT w.id, w.name, w.cover_image_url, w.status, <include refid="dateColumn"/> AS work_date,
+               t.id AS type_id, t.name AS type_name, at.id AS adaptation_type_id, at.name AS adaptation_type_name
+        FROM <include refid="workTable"/>
+        <include refid="visibilityJoin"/>
+        <choose>
+            <when test="anime">LEFT JOIN broadcast_type t ON t.id = w.broadcast_type_id</when>
+            <otherwise>LEFT JOIN book_type t ON t.id = w.book_type_id</otherwise>
+        </choose>
+        LEFT JOIN adaptation_type at ON at.id = w.adaptation_type_id
+        WHERE <include refid="publicOnly"/>
+        <if test="pattern != null">
+            AND (LOWER(w.name) LIKE LOWER(#{pattern}) ESCAPE '!'
+                 OR EXISTS (SELECT 1 FROM alias al WHERE al.target_type = <include refid="targetType"/>
+                     AND al.target_id = w.id AND LOWER(al.alias_name) LIKE LOWER(#{pattern}) ESCAPE '!')
+                 OR EXISTS (SELECT 1 FROM series_item si JOIN series s ON s.id = si.series_id
+                     WHERE si.work_type = <include refid="workType"/> AND si.work_id = w.id
+                       AND LOWER(s.name) LIKE LOWER(#{pattern}) ESCAPE '!'))
+        </if>
+        <if test="anime and filter.broadcastTypeId != null">AND w.broadcast_type_id = #{filter.broadcastTypeId}</if>
+        <if test="!anime and filter.bookTypeId != null">AND w.book_type_id = #{filter.bookTypeId}</if>
+        <if test="filter.adaptationTypeId != null">AND w.adaptation_type_id = #{filter.adaptationTypeId}</if>
+        <if test="filter.status != null">AND w.status = #{filter.status}</if>
+        <choose>
+            <when test="filter.year == 'UNKNOWN'">AND <include refid="dateColumn"/> IS NULL</when>
+            <when test="startDate != null">AND <include refid="dateColumn"/> BETWEEN #{startDate} AND #{endDate}</when>
+        </choose>
+        <if test="filter.tagIds != null and !filter.tagIds.isEmpty()">
+            <bind name="tagCount" value="filter.tagIds.size()"/>
+            AND (SELECT COUNT(DISTINCT tr.tag_id) FROM tag_relation tr
+                 WHERE tr.target_type = <include refid="targetType"/> AND tr.target_id = w.id AND tr.tag_id IN
+                 <foreach collection="filter.tagIds" item="id" open="(" separator="," close=")">#{id}</foreach>) = #{tagCount}
+        </if>
+        <!-- 公开排序不联表读取个人评分；同值使用 ID 稳定分页。 -->
+        ORDER BY
+        <choose>
+            <when test="filter.sortBy == 'NAME'">LOWER(w.name) COLLATE "C"</when>
+            <otherwise>work_date</otherwise>
+        </choose>
+        <choose><when test="filter.sortDirection == 'ASC'">ASC</when><otherwise>DESC</otherwise></choose>
+        NULLS LAST, w.id DESC
+    </select>
+
+    <select id="selectYears" resultType="java.lang.Integer">
+        SELECT DISTINCT CAST(date_part('year', <include refid="dateColumn"/>) AS INTEGER) AS work_year
+        FROM <include refid="workTable"/>
+        <include refid="visibilityJoin"/>
+        WHERE <include refid="publicOnly"/>
+        ORDER BY work_year DESC NULLS LAST
+    </select>
+
+    <select id="selectFilterTags" resultType="org.killze.acgbox.entity.content.Tag">
+        SELECT tag.id, tag.name, tag.updated_at FROM tag
+        WHERE EXISTS (SELECT 1 FROM <include refid="workTable"/>
+            JOIN tag_relation tr ON tr.target_type = <include refid="targetType"/> AND tr.target_id = w.id
+            <include refid="visibilityJoin"/>
+            WHERE tr.tag_id = tag.id AND <include refid="publicOnly"/>)
+    </select>
+
+    <!-- 人员与公司仅按当前页和作品类型批量读取，排序沿用管理资料的署名顺序。 -->
+    <select id="selectPersons" resultType="org.killze.acgbox.web.mapper.PublicCatalogMapper$RelationRow">
+        SELECT rel.target_id AS work_id, p.id, p.name, rel.role
+        FROM person_relation rel JOIN person p ON p.id = rel.person_id
+        WHERE rel.target_type = #{type} AND rel.target_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY rel.sort_order, rel.id
+    </select>
+
+    <select id="selectCompanies" resultType="org.killze.acgbox.web.mapper.PublicCatalogMapper$RelationRow">
+        SELECT rel.target_id AS work_id, c.id, c.name, rel.role
+        FROM company_relation rel JOIN company c ON c.id = rel.company_id
+        WHERE rel.target_type = #{type} AND rel.target_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+        ORDER BY rel.sort_order, rel.id
+    </select>
+</mapper>
