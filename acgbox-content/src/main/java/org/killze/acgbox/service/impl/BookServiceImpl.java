@@ -151,13 +151,12 @@ public class BookServiceImpl implements BookService {
         return loadViews(List.of(getBook(id))).getFirst();
     }
 
-    /** 复用列表筛选规则，导出忽略前端分页且不提前读取关联。 */
-    public List<Book> selectBookForExport(BookPageDTO dto) {
+    /** 复用列表筛选与排序，用独立批次读取，不使用前端页码或重复统计总数。 */
+    public List<Book> selectBookForExport(BookPageDTO dto, long batchNum, long batchSize) {
         dto.setPageNum(1L);
         dto.setPageSize(100L);
         PublishDateRange dates = normalizePage(dto);
-        var page = bookMapper.selectBookPage(new Page<>(1, 501), dto, dates.start(), dates.end());
-        if (page.getTotal() > 500) throw new BusinessException("导出结果超过 500 部，请缩小筛选范围");
+        var page = bookMapper.selectBookPage(new Page<>(batchNum, batchSize, false), dto, dates.start(), dates.end());
         return page.getRecords();
     }
 

@@ -668,7 +668,7 @@ class SortOrderMapperTests {
         query.setPublishStartDate("2024");
         query.setPublishEndDate("2024-02");
         assertEquals(List.of(2L), bookIds(service.pageBook(query)));
-        assertEquals(List.of(2L), service.selectBookForExport(query).stream().map(Book::getId).toList());
+        assertEquals(List.of(2L), service.selectBookForExport(query, 1, 200).stream().map(Book::getId).toList());
         query.setPublishStartDate("2024-02-29");
         assertEquals(List.of(2L), bookIds(service.pageBook(query)));
         query = new BookPageDTO();
@@ -856,10 +856,10 @@ class SortOrderMapperTests {
         assertFalse(books.getBookById(2L).getIsPublic());
         var animeQuery = new AnimePageDTO();
         animeQuery.setIsPublic(false);
-        assertTrue(animeService.selectAnimeForExport(animeQuery).isEmpty());
+        assertTrue(animeService.selectAnimeForExport(animeQuery, 1, 200).isEmpty());
         var bookQuery = new BookPageDTO();
         bookQuery.setIsPublic(false);
-        assertEquals(List.of(2L), books.selectBookForExport(bookQuery).stream().map(Book::getId).toList());
+        assertEquals(List.of(2L), books.selectBookForExport(bookQuery, 1, 200).stream().map(Book::getId).toList());
         animeService.deleteAnime(List.of(2L));
         assertTrue(session.getMapper(WorkVisibilityMapper.class).selectStates("ANIME", List.of(2L)).isEmpty());
         assertFalse(books.getBookById(2L).getIsPublic());
@@ -1009,12 +1009,14 @@ class SortOrderMapperTests {
             ReflectionTestUtils.setField(service, "workbook", files);
             ReflectionTestUtils.setField(service, "jdbc", jdbc);
             ReflectionTestUtils.setField(service, "transactionManager", manager);
+            ReflectionTestUtils.setField(service, "sessions", mock(org.mybatis.spring.SqlSessionTemplate.class));
             ReflectionTestUtils.setField(service, "animeService", anime);
             ReflectionTestUtils.setField(service, "bookService", book);
             var request = json.createObjectNode().put("targetType", type).put("scope", "SELECTED");
             request.putArray("ids").add(1L);
-            var download = service.export(type, request);
-            try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(new java.io.ByteArrayInputStream(download.bytes()))) {
+            try (var download = service.export(type, request);
+                 var input = java.nio.file.Files.newInputStream(download.path());
+                 var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(input)) {
                 var sheet = workbook.getSheet("works");
                 var row = sheet.getRow(1);
                 boolean isAnime = type.equals("ANIME");
@@ -1045,6 +1047,87 @@ class SortOrderMapperTests {
                 } else {
                     assertEquals(null, row.getCell(2));
                 }
+            }
+        }
+    }
+
+    /** 通过管理下载入口确认 501 部以后的行和关联没有被静默省略。 */
+    @ParameterizedTest
+    @CsvSource({"ANIME,anime", "BOOK,book"})
+    void exportDownloadsWholeSelectionAndFilteredResults(String type, String table) throws Exception {
+        seedBookCatalogs();
+        var config = session.getConfiguration();
+        var source = config.getEnvironment().getDataSource();
+        var jdbc = new org.springframework.jdbc.core.JdbcTemplate(source);
+        jdbc.update("INSERT INTO broadcast_type (id,name,sort_order) VALUES (1,'TV',0)");
+        String seed = """
+                WITH RECURSIVE ids(id) AS (SELECT 1 UNION ALL SELECT id+1 FROM ids WHERE id<502)
+                """;
+        jdbc.update(seed + (type.equals("ANIME") ? """
+                INSERT INTO anime (id,name,air_date,broadcast_type_id,adaptation_type_id,region_id,status,description)
+                SELECT id,CASE WHEN id=502 THEN '其他作品' ELSE '样本-' || id END,
+                       CASE WHEN id BETWEEN 2 AND 501 THEN '2020-01-01' ELSE '2021-01-01' END,1,1,1,3,
+                       hex(randomblob(10500)) FROM ids
+                """ : """
+                INSERT INTO book (id,name,publish_date,book_type_id,adaptation_type_id,region_id,status,description,created_at,updated_at)
+                SELECT id,CASE WHEN id=502 THEN '其他作品' ELSE '样本-' || id END,
+                       CASE WHEN id BETWEEN 2 AND 501 THEN '2020-01-01' ELSE '2021-01-01' END,1,1,1,3,hex(randomblob(10500)),
+                       '2020-01-01T00:00:00','2020-01-01T00:00:00' FROM ids
+                """));
+        jdbc.update("""
+                WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<20)
+                INSERT INTO alias (target_type,target_id,alias_name,sort_order)
+                SELECT ?,w.id,'别名-' || n.i,n.i FROM
+                """ + table + " w CROSS JOIN n WHERE w.id<=501", type);
+        config.setEnvironment(new Environment("export-memory",
+                new org.mybatis.spring.transaction.SpringManagedTransactionFactory(), source));
+        var template = new org.mybatis.spring.SqlSessionTemplate(new MybatisSqlSessionFactoryBuilder().build(config));
+        var json = tools.jackson.databind.json.JsonMapper.builder().build();
+        var service = new DataTransferServiceImpl();
+        ReflectionTestUtils.setField(service, "json", json);
+        ReflectionTestUtils.setField(service, "workbook", new TransferWorkbook(json));
+        ReflectionTestUtils.setField(service, "jdbc", jdbc);
+        ReflectionTestUtils.setField(service, "sessions", template);
+        ReflectionTestUtils.setField(service, "transactionManager", new org.springframework.jdbc.datasource.DataSourceTransactionManager(source));
+        ReflectionTestUtils.setField(service, "animeService", animeRatingService(template));
+        ReflectionTestUtils.setField(service, "bookService", bookService(template));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(new org.killze.acgbox.controller.DataTransferController(service))
+                .setControllerAdvice(new org.killze.acgbox.exception.GlobalExceptionHandler()).build();
+        String path = "/data-transfer/" + table + "/export";
+        for (String scope : List.of("SELECTED", "FILTERED", "ALL")) {
+            boolean selected = "SELECTED".equals(scope);
+            boolean all = "ALL".equals(scope);
+            var request = json.createObjectNode().put("targetType", type).put("scope", selected ? "SELECTED" : "FILTERED");
+            if (selected) {
+                var ids = request.putArray("ids");
+                for (long id = 501; id >= 1; id--) ids.add(id);
+                ids.add(1L);
+            } else if (all) {
+                request.putObject("filters");
+            } else {
+                request.putObject("filters").put("keyword", "样本").put("pageNum", 99).put("pageSize", 1)
+                        .put("sortBy", type.equals("ANIME") ? "BROADCAST_DATE" : "PUBLISH_DATE").put("sortDirection", "ASC");
+            }
+            var response = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(path)
+                    .servletPath(path).contentType("application/json").content(json.writeValueAsBytes(request)))
+                    .andReturn().getResponse();
+            assertEquals("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", response.getContentType(),
+                    () -> new String(response.getContentAsByteArray(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] content = response.getContentAsByteArray();
+            assertTrue(content.length > 5 * 1024 * 1024);
+            try (var workbook = new org.apache.poi.xssf.usermodel.XSSFWorkbook(
+                    new java.io.ByteArrayInputStream(content))) {
+                var works = workbook.getSheet("works");
+                int end = all ? 502 : 501;
+                assertEquals(end, works.getLastRowNum());
+                assertEquals(all ? "其他作品" : selected ? "样本-1" : "样本-501", works.getRow(1).getCell(1).getStringCellValue());
+                assertEquals("W" + end, works.getRow(end).getCell(0).getStringCellValue());
+                assertEquals(all ? "样本-2" : selected ? "样本-501" : "样本-1", works.getRow(end).getCell(1).getStringCellValue());
+                assertEquals(21000, works.getRow(end).getCell(3).getStringCellValue().length());
+                var aliases = workbook.getSheet("aliases");
+                assertEquals(10020, aliases.getLastRowNum());
+                assertEquals("W" + end, aliases.getRow(10020).getCell(0).getStringCellValue());
             }
         }
     }

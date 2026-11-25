@@ -2353,11 +2353,11 @@ ACGBOX_COS_PUBLIC_BASE_URL: "https://img.example.com"
 {"targetType":"BOOK","scope":"FILTERED","filters":{"keyword":"示例","ratingMin":0,"ratingMax":10}}
 ```
 
-SELECTED 要求非空 ID 集合，去重后最多 500 个，按 ID 升序输出，不存在的作品拒绝。FILTERED 沿用现有列表筛选与排序；超过 500 部拒绝，不截断成当前页。ids 与 filters 不能混用。
+SELECTED 要求非空 ID 集合，去重后按 ID 升序导出全部勾选作品；任一 ID 不存在时拒绝导出。FILTERED 沿用现有列表筛选与排序，忽略列表分页参数，导出全部命中作品；`filters: {}` 导出该类型的全部作品。ids 与 filters 不能混用。
 
 成功返回 XLSX 二进制，Content-Type 为 `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`，附受控 Content-Disposition、Content-Length，文件名为 `ACGBox_ANIME_yyyyMMdd_HHmmss.xlsx` 或 BOOK，时间为 Asia/Shanghai。参数、读取及生成错误仍返回 JSON Result，前端须检查 HTTP 状态及 Content-Type，不能将错误体保存成 Excel。
 
-数据读取在同一数据源的只读 REPEATABLE_READ 事务中形成快照，输出简介、封面 URL、关联及资料名称，不输出数据库 ID 或创建／更新时间。事务结束后才生成受限文件，全部成功后发送响应；生成或大小检查失败不发送残缺 XLSX。非整数历史评分拒绝导出并提示作品 ID，不自动取整。
+在同一数据源的只读 REPEATABLE_READ 事务内分批查询并写入工作表，输出简介、封面 URL、关联及资料名称，不输出数据库 ID 或创建／更新时间。事务结束后封装为完整 XLSX，生成成功才开始发送响应；生成失败或超过 XLSX 格式限制时拒绝导出，不截断。非整数历史评分拒绝导出并提示作品 ID，不自动取整。
 
 ### 17.3 文件协议 v2（当前导出与模板）
 
@@ -2460,9 +2460,9 @@ Redis 复用现有连接，独立键前缀 `acgbox:data-transfer:preview:`，最
 
 ### 17.6 限制与部署
 
-- 文件只支持标准 XLSX；单文件及最终导出文件最大 5 MiB，multipart 请求最大 6 MiB；最多 500 部作品、10000 条关联。
+- 导入只支持标准 XLSX；单文件最大 5 MiB，multipart 请求最大 6 MiB；每次导入最多 500 部作品、10000 条关联。若导出文件超过这些限制，重新导入前需拆分文件，并保留各批作品对应的关联及编号。
 - 实际累计解压最多 50 MiB、单项最多 20 MiB，保留 POI 压缩比保护；读取与 XML 预检执行 15 秒时限。预检先限制异常行／单元格／共享文本及 XML 复杂度，再创建工作簿，不允许无限构建对象。
-- 标准化 JSON 最多 5 MiB，Redis value 和完整预览 Result 各最多 6 MiB；文件生成使用受限输出，单元格最多 32767 个 Excel 文本字符，不截断。
+- 导入的标准化 JSON 最多 5 MiB，Redis value 和完整预览 Result 各最多 6 MiB。导出不受上述配额限制；XLSX 单张表最多 1,048,576 行（含表头），每个文本单元格最多 32767 个字符，超限拒绝生成，不截断。大文件下载仍受服务端可用临时磁盘、网关超时及网络条件影响。
 - 拒绝公式、宏、嵌入图片／对象、外部关系、DTD 和受密码保护等不支持的文件，不执行公式，不采用缓存公式值。原始 XLSX 临时文件在成功或失败后清理，不放公开目录。
 - Excel 超限为 HTTP 413 + Result，提示 `Excel 文件不能超过 5 MiB，上传请求不能超过 6 MiB`；图片入口保留原图片文案。
 

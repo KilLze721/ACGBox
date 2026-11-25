@@ -853,13 +853,12 @@ public class AnimeServiceImpl implements AnimeService {
         animeMapper.deleteByIds(ids);
     }
 
-    /** 复用列表筛选规则，仅选择受限作品集合，不提前聚合关联。 */
-    public List<Anime> selectAnimeForExport(AnimePageDTO dto) {
+    /** 复用列表筛选与排序，用独立批次读取，不使用前端页码或重复统计总数。 */
+    public List<Anime> selectAnimeForExport(AnimePageDTO dto, long batchNum, long batchSize) {
         dto.setPageNum(1L);
         dto.setPageSize(100L);
         BroadcastDateRange range = normalizeAnimePageDTO(dto);
-        IPage<Anime> page = animeMapper.selectAnimePage(new Page<>(1, 501), dto, range.startDate(), range.endDate());
-        if (page.getTotal() > 500) throw new BusinessException("导出结果超过 500 部，请缩小筛选范围");
+        IPage<Anime> page = animeMapper.selectAnimePage(new Page<>(batchNum, batchSize, false), dto, range.startDate(), range.endDate());
         return page.getRecords();
     }
 

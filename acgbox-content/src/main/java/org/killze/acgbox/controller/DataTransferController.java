@@ -1,6 +1,7 @@
 package org.killze.acgbox.controller;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.killze.acgbox.exception.BusinessException;
 import org.killze.acgbox.result.Result;
 import org.killze.acgbox.service.DataTransferService;
@@ -11,6 +12,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.security.Principal;
+import java.io.IOException;
+import java.nio.file.Files;
 
 /** 动画与书籍使用固定分组入口，权限复用现有 ADMIN、EDITOR 规则。 */
 @RestController
@@ -20,8 +23,16 @@ public class DataTransferController {
     public DataTransferController(DataTransferService service) { this.service = service; }
 
     @PostMapping({"/anime/export", "/book/export"})
-    public ResponseEntity<byte[]> export(@RequestBody JsonNode body, HttpServletRequest request) {
-        return file(service.export(type(request), body));
+    public void export(@RequestBody JsonNode body, HttpServletRequest request, HttpServletResponse response) throws IOException {
+        // 生成成功前不写响应；传输结束或客户端中断时均清理临时文件。
+        try (var download = service.export(type(request), body)) {
+            long length = Files.size(download.path());
+            response.setContentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            response.setContentLengthLong(length);
+            response.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                    ContentDisposition.attachment().filename(download.filename()).build().toString());
+            Files.copy(download.path(), response.getOutputStream());
+        }
     }
     @GetMapping({"/anime/template", "/book/template"})
     public ResponseEntity<byte[]> template(@RequestParam String targetType, HttpServletRequest request) {

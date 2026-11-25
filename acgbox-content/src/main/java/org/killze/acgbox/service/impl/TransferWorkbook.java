@@ -5,6 +5,8 @@ import org.apache.poi.openxml4j.util.ZipEntrySource;
 import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.xssf.streaming.SXSSFWorkbook;
+import org.apache.poi.ss.SpreadsheetVersion;
 import org.apache.poi.ss.util.NumberToTextConverter;
 import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.killze.acgbox.exception.BusinessException;
@@ -25,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.*;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 
 /** 固定版本的作品文件协议；不执行公式，不访问图片和外部链接。 */
 @Component
@@ -151,103 +154,139 @@ public class TransferWorkbook {
     }
 
     private byte[] write(String type, String kind, Map<String, List<ObjectNode>> tables, boolean named) {
-        var summaries = named ? buildSummaries(tables) : Map.<String, Map<String, List<String>>>of();
         try (XSSFWorkbook workbook = new XSSFWorkbook(); LimitedOutput output = new LimitedOutput(FILE_LIMIT)) {
-            CellStyle text = workbook.createCellStyle();
-            text.setDataFormat(workbook.createDataFormat().getFormat("@"));
-            text.setWrapText(true);
-            for (var entry : (named ? namedHeaders(type) : headers(type)).entrySet()) {
-                Sheet sheet = workbook.createSheet(entry.getKey());
-                sheet.setDefaultColumnWidth(22);
-                sheet.setDefaultRowHeightInPoints(named ? 16 : 24);
-                Row head = sheet.createRow(0);
-                head.setHeightInPoints(named ? 16 : 28);
-                Drawing<?> drawing = sheet.createDrawingPatriarch();
-                for (int i = 0; i < entry.getValue().size(); i++) {
-                    String field = entry.getValue().get(i);
-                    Cell heading = head.createCell(i, CellType.STRING);
-                    heading.setCellValue(namedLabel(field, named));
-                    ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
-                    anchor.setCol1(i); anchor.setCol2(i + 3); anchor.setRow1(0); anchor.setRow2(5);
-                    Comment comment = drawing.createCellComment(anchor);
-                    comment.setString(workbook.getCreationHelper().createRichTextString(SUMMARY_COLUMNS.containsKey(field)
-                            ? "仅供阅读，导入忽略此列；完整内容以对应的关联明细表为准"
-                            : named && DISPLAY_FIELDS.contains(field)
-                            ? "按名称精确匹配已有资料，状态请填写对应状态文字" : explanation(field, type)));
-                    heading.setCellComment(comment);
-                    sheet.setDefaultColumnStyle(i, text);
-                    int width = switch (field) {
-                        case "sourceId", "adaptationTypeId", "regionId", "seriesId", "broadcastTypeId",
-                                "bookTypeId", "companyId", "personId", "tagId", "sortOrder",
-                                "seriesSortOrder", "personalRatingScore" -> 16;
-                        case "name", "aliasName", "companyName", "personName", "tagName", "title",
-                                "adaptationTypeName", "regionName", "statusName", "broadcastTypeName", "bookTypeName", "seriesName" -> 32;
-                        case "description", "url", "coverImageUrl" -> 60;
-                        default -> 22;
-                    };
-                    if (named) width = switch (field) {
-                        case "rowKey" -> 6;
-                        case "name" -> 70;
-                        case "tagSummary" -> 25;
-                        case "seriesName", "companySummary", "personSummary", "coverImageUrl", "aliasSummary", "linkSummary" -> 20;
-                        case "description" -> 30;
-                        case "airDate", "publishDate" -> 15;
-                        case "episodeCount", "volumeCount", "chapterCount", "broadcastTypeName", "bookTypeName",
-                                "adaptationTypeName", "statusName", "regionName", "personalRatingScore" -> 10;
-                        default -> width;
-                    };
-                    sheet.setColumnWidth(i, width * 256);
-                    if (entry.getKey().equals("works") && HIDDEN_FIELDS.contains(field)) sheet.setColumnHidden(i, true);
-                }
-                sheet.createFreezePane(0, 1);
-                List<ObjectNode> rows = new ArrayList<>();
-                if (entry.getKey().equals("meta")) {
-                    Map<String, String> meta = new LinkedHashMap<>();
-                    meta.put("schemaVersion", named ? "2" : "1");
-                    meta.put("targetType", type);
-                    meta.put("fileKind", kind);
-                    meta.put("exportedAt", OffsetDateTime.now(ZoneId.of("Asia/Shanghai")).toString());
-                    meta.put("notice", "仅批量新增；sourceId 不用于更新；资料 ID 仅对来源数据库有效；名称列仅展示，导入以隐藏 ID 和状态代码为准，需修改时请取消隐藏");
-                    if (named) meta.put("notice", "仅批量新增；按编号关联各工作表，资料名称必须精确匹配当前数据库已有记录");
-                    meta.forEach((key, value) -> rows.add(json.createObjectNode().put("key", key).put("value", value)));
-                } else {
-                    rows.addAll(tables.getOrDefault(entry.getKey(), List.of()));
-                }
-                for (int n = 0; n < rows.size(); n++) {
-                    Row row = sheet.createRow(n + 1);
-                    // 逐行保存固定高度，避免表格软件按换行内容自动撑高。
-                    row.setHeightInPoints(named ? 16 : 24);
-                    ObjectNode data = rows.get(n);
-                    for (int i = 0; i < entry.getValue().size(); i++) {
-                        String field = entry.getValue().get(i);
-                        JsonNode value = data.get(field);
-                        if (summaries.containsKey(field)) {
-                            List<String> items = summaries.get(field).get(data.path("rowKey").asText());
-                            if (items != null) {
-                                boolean tags = field.equals("tagSummary");
-                                int shown = tags ? items.size() : Math.min(3, items.size());
-                                String summary = String.join(tags ? "/" : "、", items.subList(0, shown));
-                                if (items.size() > shown) summary += "（另有 " + (items.size() - shown) + " 项）";
-                                value = json.valueToTree(summary);
-                            }
-                        }
-                        if (entry.getKey().equals("works") && field.equals("statusName") && data.hasNonNull("status")) {
-                            value = json.valueToTree(statusName(type, data.path("status").asInt()));
-                        }
-                        if (value == null || value.isNull()) continue;
-                        String string = value.asText();
-                        if (string.length() > 32767) {
-                            throw new BusinessException("作品 " + data.path("rowKey").asText("") + " 的 " + field + " 超过 Excel 单元格容量");
-                        }
-                        // 所有字段按字符串输出，原文以公式符号开头也不会变成公式。
-                        row.createCell(i, CellType.STRING).setCellValue(string);
-                    }
-                }
-            }
+            var columns = named ? namedHeaders(type) : headers(type);
+            createSheets(workbook, type, kind, named, columns);
+            // 元数据始终使用生成值，不接收调用方传入的元数据行。
+            var dataSheets = new LinkedHashMap<>(tables);
+            dataSheets.remove("meta");
+            appendRows(workbook, type, named, columns, dataSheets);
             workbook.write(output);
             return output.toByteArray();
         } catch (IOException e) {
-            throw new BusinessException("Excel 文件生成失败或超过 5 MiB，请缩小导出范围");
+            throw new BusinessException("Excel 模板生成失败或超过 5 MiB");
+        }
+    }
+
+    /** 导出使用有限行窗口，已写入的行转存磁盘；模板仍使用原来的小文件生成流程。 */
+    void writeExport(String type, OutputStream output, Consumer<Consumer<Map<String, List<ObjectNode>>>> populate)
+            throws IOException {
+        try (SXSSFWorkbook workbook = new SXSSFWorkbook(100)) {
+            workbook.setCompressTempFiles(true);
+            var columns = namedHeaders(type);
+            createSheets(workbook, type, "EXPORT", true, columns);
+            populate.accept(tables -> appendRows(workbook, type, true, columns, tables));
+            workbook.write(output);
+        }
+    }
+
+    /** 模板和导出共用表头、列宽、注释和元数据。 */
+    private void createSheets(Workbook workbook, String type, String kind, boolean named,
+                              Map<String, List<String>> columns) {
+        CellStyle text = workbook.createCellStyle();
+        text.setDataFormat(workbook.createDataFormat().getFormat("@"));
+        text.setWrapText(true);
+        for (var entry : columns.entrySet()) {
+            Sheet sheet = workbook.createSheet(entry.getKey());
+            sheet.setDefaultColumnWidth(22);
+            sheet.setDefaultRowHeightInPoints(named ? 16 : 24);
+            Row head = sheet.createRow(0);
+            head.setHeightInPoints(named ? 16 : 28);
+            Drawing<?> drawing = sheet.createDrawingPatriarch();
+            for (int i = 0; i < entry.getValue().size(); i++) {
+                String field = entry.getValue().get(i);
+                Cell heading = head.createCell(i, CellType.STRING);
+                heading.setCellValue(namedLabel(field, named));
+                ClientAnchor anchor = workbook.getCreationHelper().createClientAnchor();
+                anchor.setCol1(i); anchor.setCol2(i + 3); anchor.setRow1(0); anchor.setRow2(5);
+                Comment comment = drawing.createCellComment(anchor);
+                comment.setString(workbook.getCreationHelper().createRichTextString(SUMMARY_COLUMNS.containsKey(field)
+                        ? "仅供阅读，导入忽略此列；完整内容以对应的关联明细表为准"
+                        : named && DISPLAY_FIELDS.contains(field)
+                        ? "按名称精确匹配已有资料，状态请填写对应状态文字" : explanation(field, type)));
+                heading.setCellComment(comment);
+                sheet.setDefaultColumnStyle(i, text);
+                int width = switch (field) {
+                    case "sourceId", "adaptationTypeId", "regionId", "seriesId", "broadcastTypeId",
+                            "bookTypeId", "companyId", "personId", "tagId", "sortOrder",
+                            "seriesSortOrder", "personalRatingScore" -> 16;
+                    case "name", "aliasName", "companyName", "personName", "tagName", "title",
+                            "adaptationTypeName", "regionName", "statusName", "broadcastTypeName", "bookTypeName", "seriesName" -> 32;
+                    case "description", "url", "coverImageUrl" -> 60;
+                    default -> 22;
+                };
+                if (named) width = switch (field) {
+                    case "rowKey" -> 6;
+                    case "name" -> 70;
+                    case "tagSummary" -> 25;
+                    case "seriesName", "companySummary", "personSummary", "coverImageUrl", "aliasSummary", "linkSummary" -> 20;
+                    case "description" -> 30;
+                    case "airDate", "publishDate" -> 15;
+                    case "episodeCount", "volumeCount", "chapterCount", "broadcastTypeName", "bookTypeName",
+                            "adaptationTypeName", "statusName", "regionName", "personalRatingScore" -> 10;
+                    default -> width;
+                };
+                sheet.setColumnWidth(i, width * 256);
+                if (entry.getKey().equals("works") && HIDDEN_FIELDS.contains(field)) sheet.setColumnHidden(i, true);
+            }
+            sheet.createFreezePane(0, 1);
+            if (entry.getKey().equals("meta")) {
+                List<ObjectNode> rows = new ArrayList<>();
+                Map<String, String> meta = new LinkedHashMap<>();
+                meta.put("schemaVersion", named ? "2" : "1");
+                meta.put("targetType", type);
+                meta.put("fileKind", kind);
+                meta.put("exportedAt", OffsetDateTime.now(ZoneId.of("Asia/Shanghai")).toString());
+                meta.put("notice", "仅批量新增；sourceId 不用于更新；资料 ID 仅对来源数据库有效；名称列仅展示，导入以隐藏 ID 和状态代码为准，需修改时请取消隐藏");
+                if (named) meta.put("notice", "仅批量新增；按编号关联各工作表，资料名称必须精确匹配当前数据库已有记录");
+                meta.forEach((key, value) -> rows.add(json.createObjectNode().put("key", key).put("value", value)));
+                appendRows(workbook, type, named, columns, Map.of("meta", rows));
+            }
+        }
+    }
+
+    /** 每次只保留当前作品的摘要；超出 XLSX 行或单元格容量时明确失败。 */
+    private void appendRows(Workbook workbook, String type, boolean named, Map<String, List<String>> columns,
+                            Map<String, List<ObjectNode>> tables) {
+        var summaries = named ? buildSummaries(tables) : Map.<String, Map<String, List<String>>>of();
+        for (var entry : columns.entrySet()) {
+            var rows = tables.getOrDefault(entry.getKey(), List.of());
+            if (rows.isEmpty()) continue;
+            Sheet sheet = workbook.getSheet(entry.getKey());
+            List<String> fields = entry.getValue();
+            int rowIndex = sheet.getLastRowNum() + 1;
+            if (rows.size() > SpreadsheetVersion.EXCEL2007.getMaxRows() - rowIndex) {
+                throw new BusinessException("工作表 " + entry.getKey() + " 超过 XLSX 行数上限，请分批导出");
+            }
+            for (ObjectNode data : rows) {
+                Row row = sheet.createRow(rowIndex++);
+                // 逐行保存固定高度，避免表格软件按换行内容自动撑高。
+                row.setHeightInPoints(named ? 16 : 24);
+                for (int i = 0; i < fields.size(); i++) {
+                    String field = fields.get(i);
+                    JsonNode value = data.get(field);
+                    if (summaries.containsKey(field)) {
+                        List<String> items = summaries.get(field).get(data.path("rowKey").asText());
+                        if (items != null) {
+                            boolean tags = field.equals("tagSummary");
+                            int shown = tags ? items.size() : Math.min(3, items.size());
+                            String summary = String.join(tags ? "/" : "、", items.subList(0, shown));
+                            if (items.size() > shown) summary += "（另有 " + (items.size() - shown) + " 项）";
+                            value = json.valueToTree(summary);
+                        }
+                    }
+                    if (entry.getKey().equals("works") && field.equals("statusName") && data.hasNonNull("status")) {
+                        value = json.valueToTree(statusName(type, data.path("status").asInt()));
+                    }
+                    if (value == null || value.isNull()) continue;
+                    String string = value.asText();
+                    if (string.length() > 32767) {
+                        throw new BusinessException("作品 " + data.path("rowKey").asText("") + " 的 " + field + " 超过 Excel 单元格容量");
+                    }
+                    // 所有字段按字符串输出，原文以公式符号开头也不会变成公式。
+                    row.createCell(i, CellType.STRING).setCellValue(string);
+                }
+            }
         }
     }
 

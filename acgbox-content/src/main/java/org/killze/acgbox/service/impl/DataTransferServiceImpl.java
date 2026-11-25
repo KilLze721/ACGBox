@@ -25,17 +25,23 @@ import tools.jackson.databind.node.ObjectNode;
 import lombok.extern.slf4j.Slf4j;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.time.*;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.function.Supplier;
+import java.util.function.Consumer;
+import java.util.function.LongFunction;
 import static org.killze.acgbox.service.impl.TransferWorkbook.*;
 
 /** 作品文件传输协调：Redis 只存预览，数据库批次是执行状态的唯一权威来源。 */
 @Service
 @Slf4j
 public class DataTransferServiceImpl implements DataTransferService {
+    private static final int EXPORT_BATCH_SIZE = 200;
     private static final String CACHE_PREFIX = "acgbox:data-transfer:preview:";
     private static final Map<String, Integer> CREATABLE_CATALOGS = Map.of("company", 100, "person", 100, "series", 200, "tag", 50);
     @Autowired private org.killze.acgbox.service.CompanyService companyService;
@@ -68,35 +74,72 @@ public class DataTransferServiceImpl implements DataTransferService {
         return download(type, workbook.writeNamed(type, "TEMPLATE", Map.of()));
     }
 
-    public Download export(String type, JsonNode request) {
+    /** 完整生成后才交给下载接口，失败时删除未完成的文件。 */
+    public ExportDownload export(String type, JsonNode request) {
         requireType(type, request.path("targetType").asText());
-        var tables = readTransaction(() -> exportSnapshot(type, request));
-        return download(type, workbook.writeNamed(type, "EXPORT", tables));
+        Path path = null;
+        boolean completed = false;
+        try {
+            path = Files.createTempFile("acgbox-export-", ".xlsx");
+            try (var output = Files.newOutputStream(path)) {
+                workbook.writeExport(type, output, append -> readTransaction(() -> {
+                    exportSnapshot(type, request, append);
+                    return null;
+                }));
+            }
+            completed = true;
+            return new ExportDownload(filename(type), path);
+        } catch (IOException e) {
+            log.warn("生成导出文件失败", e);
+            throw new BusinessException("Excel 文件生成失败，请检查可用磁盘空间后重试");
+        } finally {
+            if (!completed && path != null) {
+                try { Files.deleteIfExists(path); }
+                catch (IOException e) { log.warn("清理未完成的导出文件失败", e); }
+            }
+        }
     }
 
     private Download download(String type, byte[] bytes) {
-        String stamp = LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-        return new Download("ACGBox_" + type + "_" + stamp + ".xlsx", bytes);
+        return new Download(filename(type), bytes);
     }
 
-    private Map<String, List<ObjectNode>> exportSnapshot(String type, JsonNode request) {
-        List<Long> ids;
+    /** 保留模板与导出的原有命名约定。 */
+    private String filename(String type) {
+        String stamp = LocalDateTime.now(ZoneId.of("Asia/Shanghai")).format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        return "ACGBox_" + type + "_" + stamp + ".xlsx";
+    }
+
+    /** 所有批次在同一只读快照中读取，只积累当前作品的表格行。 */
+    private void exportSnapshot(String type, JsonNode request, Consumer<Map<String, List<ObjectNode>>> append) {
         String scope = request.path("scope").asText();
-        String table = type.equals("ANIME") ? "anime" : "book";
+        boolean anime = type.equals("ANIME");
+        var columns = workbook.headers(type);
+        int[] number = {0};
+        Consumer<Long> exportWork = id -> {
+            append.accept(exportRow(type, id, ++number[0], columns));
+            // 事务跨越所有批次，但不让 MyBatis 一级缓存持有已写入的作品和关联。
+            sessions.clearCache();
+        };
         if (scope.equals("SELECTED")) {
             if (request.hasNonNull("filters")) throw new BusinessException("已勾选导出不能同时提交 filters");
             JsonNode input = request.path("ids");
-            if (!input.isArray() || input.isEmpty()) throw new BusinessException("请选择 1 到 500 部作品");
+            if (!input.isArray() || input.isEmpty()) throw new BusinessException("请至少选择一部作品");
             TreeSet<Long> selected = new TreeSet<>();
             for (JsonNode id : input) {
                 if (!id.isIntegralNumber() || !id.canConvertToLong() || id.asLong() < 1 || id.asLong() > 2147483647L) throw new BusinessException("作品 ID 必须为有效整数");
                 selected.add(id.asLong());
-                if (selected.size() > 500) throw new BusinessException("单次最多导出 500 部作品");
             }
-            ids = new ArrayList<>(selected);
-            String placeholders = placeholders(ids.size());
-            Long count = jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE id IN (" + placeholders + ")", Long.class, ids.toArray());
-            if (count == null || count != ids.size()) throw new BusinessException("所选作品不存在，请刷新后重试");
+            String table = anime ? "anime" : "book";
+            var iterator = selected.iterator();
+            while (iterator.hasNext()) {
+                List<Long> ids = new ArrayList<>(EXPORT_BATCH_SIZE);
+                while (ids.size() < EXPORT_BATCH_SIZE && iterator.hasNext()) ids.add(iterator.next());
+                Long count = jdbc.queryForObject("SELECT count(*) FROM " + table + " WHERE id IN (" + placeholders(ids.size())
+                        + ")", Long.class, ids.toArray());
+                if (count == null || count != ids.size()) throw new BusinessException("所选作品不存在，请刷新后重试");
+                ids.forEach(exportWork);
+            }
         } else if (scope.equals("FILTERED")) {
             if (request.hasNonNull("ids")) throw new BusinessException("筛选导出不能同时提交 ids");
             JsonNode filters = request.get("filters");
@@ -111,81 +154,65 @@ public class DataTransferServiceImpl implements DataTransferService {
             }
             ObjectNode copy = (ObjectNode) filters.deepCopy();
             copy.remove(List.of("page", "pageNum", "pageSize"));
-            if (type.equals("ANIME")) ids = animeService.selectAnimeForExport(json.treeToValue(copy, AnimePageDTO.class)).stream().map(Anime::getId).toList();
-            else ids = bookService.selectBookForExport(json.treeToValue(copy, BookPageDTO.class)).stream().map(Book::getId).toList();
+            LongFunction<List<Long>> batch;
+            if (anime) {
+                var dto = json.treeToValue(copy, AnimePageDTO.class);
+                batch = page -> animeService.selectAnimeForExport(dto, page, EXPORT_BATCH_SIZE).stream().map(Anime::getId).toList();
+            } else {
+                var dto = json.treeToValue(copy, BookPageDTO.class);
+                batch = page -> bookService.selectBookForExport(dto, page, EXPORT_BATCH_SIZE).stream().map(Book::getId).toList();
+            }
+            for (long page = 1; ; page++) {
+                List<Long> ids = batch.apply(page);
+                ids.forEach(exportWork);
+                if (ids.size() < EXPORT_BATCH_SIZE) break;
+            }
         } else throw new BusinessException("scope 仅支持 SELECTED 或 FILTERED");
-        Map<String, List<ObjectNode>> tables = new LinkedHashMap<>();
-        workbook.headers(type).keySet().forEach(key -> tables.put(key, new ArrayList<>()));
-        if (ids.isEmpty()) return tables;
-        checkSnapshotBounds(type, table, ids);
-        long bytes = 0;
-        for (int n = 0; n < ids.size(); n++) {
-            Long id = ids.get(n);
-            String key = String.format(Locale.ROOT, "W%03d", n + 1);
-            ObjectNode data;
-            try {
-                data = (ObjectNode) json.valueToTree(type.equals("ANIME") ? animeService.getAnimeById(id) : bookService.getBookById(id));
-            } catch (BusinessException e) { throw new BusinessException("作品 " + id + " 无法导出：" + e.getMessage()); }
-            JsonNode score = data.get("personalRatingScore");
-            if (score != null && !score.isNull()) {
-                var value = score.decimalValue();
-                if (value.stripTrailingZeros().scale() > 0 || value.signum() < 0 || value.compareTo(java.math.BigDecimal.TEN) > 0) throw new BusinessException("作品 " + id + " 的个人评分不是 0 到 10 整数，请先核对历史数据");
-            }
-            ObjectNode basic = json.createObjectNode().put("rowKey", key).put("sourceId", id);
-            for (String field : workbook.headers(type).get("works")) {
-                if (data.has(field)) basic.set(field, data.get(field));
-            }
-            basic.put("adaptationTypeName", referenceName("adaptation_type", data.path("adaptationTypeId").asLong()));
-            basic.put("regionName", referenceName("region", data.path("regionId").asLong()));
-            if (data.hasNonNull("seriesId")) {
-                basic.put("seriesName", referenceName("series", data.path("seriesId").asLong()));
-            }
-            String typeField = type.equals("ANIME") ? "broadcastType" : "bookType";
-            basic.put(typeField + "Name", referenceName(type.equals("ANIME") ? "broadcast_type" : "book_type", data.path(typeField + "Id").asLong()));
-            tables.get("works").add(basic);
-            for (String property : List.of("aliasNames", "companies", "persons", "tagIds", "externalLinks")) {
-                String sheet = switch (property) { case "aliasNames" -> "aliases"; case "tagIds" -> "tags"; case "externalLinks" -> "external_links"; default -> property; };
-                int index = 0;
-                for (JsonNode value : data.path(property)) {
-                    ObjectNode row;
-                    if (property.equals("aliasNames")) row = json.createObjectNode().put("aliasName", value.asText()).put("sortOrder", index);
-                    else if (property.equals("tagIds")) row = json.createObjectNode().put("tagId", value.asLong());
-                    else row = ((ObjectNode) value).deepCopy();
-                    row.put("rowKey", key);
-                    if (property.equals("companies")) row.put("companyName", referenceName("company", row.path("companyId").asLong()));
-                    if (property.equals("persons")) row.put("personName", referenceName("person", row.path("personId").asLong()));
-                    if (property.equals("tagIds")) row.put("tagName", referenceName("tag", value.asLong()));
-                    tables.get(sheet).add(row);
-                    index++;
-                }
-            }
-            // 每部作品提取完成即累计，不能先构造无限快照再判断。
-            bytes += json.writeValueAsBytes(data).length;
-            if (bytes > FILE_LIMIT) throw new BusinessException("导出标准化数据超过 5 MiB，请缩小范围");
-        }
-        limitedJson(tables, FILE_LIMIT);
-        return tables;
     }
 
-    private void checkSnapshotBounds(String type, String table, List<Long> ids) {
-        String in = placeholders(ids.size());
-        long relationCount = 0;
-        long textBytes = jdbc.queryForObject("SELECT coalesce(sum(octet_length(coalesce(name,''))+octet_length(coalesce(description,''))+octet_length(coalesce(cover_image_url,''))),0) FROM " + table + " WHERE id IN (" + in + ")", Long.class, ids.toArray());
-        for (String relation : List.of("alias", "company_relation", "person_relation", "tag_relation", "external_link", "series_item")) {
-            List<Object> args = new ArrayList<>();
-            args.add(relation.equals("series_item") ? type.toLowerCase(Locale.ROOT) : type); args.addAll(ids);
-            String where = relation.equals("series_item") ? "work_type=? AND work_id" : "target_type=? AND target_id";
-            relationCount += jdbc.queryForObject("SELECT count(*) FROM " + relation + " WHERE " + where + " IN (" + in + ")", Long.class, args.toArray());
-            if (relationCount > RELATION_LIMIT) throw new BusinessException("导出关联超过 10000 条，请缩小范围");
-            String fields = switch (relation) {
-                case "alias" -> "octet_length(coalesce(alias_name,''))";
-                case "company_relation", "person_relation" -> "octet_length(coalesce(role,''))";
-                case "external_link" -> "octet_length(coalesce(title,''))+octet_length(coalesce(url,''))";
-                default -> "0";
-            };
-            textBytes += jdbc.queryForObject("SELECT coalesce(sum(" + fields + "),0) FROM " + relation + " WHERE " + where + " IN (" + in + ")", Long.class, args.toArray());
-            if (textBytes > FILE_LIMIT) throw new BusinessException("导出文本超过 5 MiB，请缩小范围");
+    /** 按原协议组装当前作品与关联明细，生成后立即交给表格写入器。 */
+    private Map<String, List<ObjectNode>> exportRow(String type, Long id, int number, Map<String, List<String>> columns) {
+        Map<String, List<ObjectNode>> tables = new LinkedHashMap<>();
+        columns.keySet().forEach(key -> tables.put(key, new ArrayList<>()));
+        String key = String.format(Locale.ROOT, "W%03d", number);
+        ObjectNode data;
+        try {
+            data = (ObjectNode) json.valueToTree(type.equals("ANIME") ? animeService.getAnimeById(id) : bookService.getBookById(id));
+        } catch (BusinessException e) { throw new BusinessException("作品 " + id + " 无法导出：" + e.getMessage()); }
+        JsonNode score = data.get("personalRatingScore");
+        if (score != null && !score.isNull()) {
+            var value = score.decimalValue();
+            if (value.stripTrailingZeros().scale() > 0 || value.signum() < 0 || value.compareTo(java.math.BigDecimal.TEN) > 0) throw new BusinessException("作品 " + id + " 的个人评分不是 0 到 10 整数，请先核对历史数据");
         }
+        ObjectNode basic = json.createObjectNode().put("rowKey", key).put("sourceId", id);
+        for (String field : columns.get("works")) {
+            if (data.has(field)) basic.set(field, data.get(field));
+        }
+        basic.put("adaptationTypeName", referenceName("adaptation_type", data.path("adaptationTypeId").asLong()));
+        basic.put("regionName", referenceName("region", data.path("regionId").asLong()));
+        if (data.hasNonNull("seriesId")) {
+            basic.put("seriesName", referenceName("series", data.path("seriesId").asLong()));
+        }
+        String typeField = type.equals("ANIME") ? "broadcastType" : "bookType";
+        basic.put(typeField + "Name", referenceName(type.equals("ANIME") ? "broadcast_type" : "book_type", data.path(typeField + "Id").asLong()));
+        tables.get("works").add(basic);
+        for (String property : List.of("aliasNames", "companies", "persons", "tagIds", "externalLinks")) {
+            String sheet = switch (property) { case "aliasNames" -> "aliases"; case "tagIds" -> "tags"; case "externalLinks" -> "external_links"; default -> property; };
+            int index = 0;
+            for (JsonNode value : data.path(property)) {
+                ObjectNode row;
+                if (property.equals("aliasNames")) row = json.createObjectNode().put("aliasName", value.asText()).put("sortOrder", index);
+                else if (property.equals("tagIds")) row = json.createObjectNode().put("tagId", value.asLong());
+                else row = ((ObjectNode) value).deepCopy();
+                row.put("rowKey", key);
+                if (property.equals("companies")) row.put("companyName", referenceName("company", row.path("companyId").asLong()));
+                if (property.equals("persons")) row.put("personName", referenceName("person", row.path("personId").asLong()));
+                if (property.equals("tagIds")) row.put("tagName", referenceName("tag", value.asLong()));
+                tables.get(sheet).add(row);
+                index++;
+            }
+        }
+        return tables;
     }
 
     public ObjectNode preview(String type, String requested, long owner, MultipartFile file) {
@@ -662,7 +689,8 @@ public class DataTransferServiceImpl implements DataTransferService {
         TransactionTemplate template = new TransactionTemplate(transactionManager);
         template.setReadOnly(read);
         template.setIsolationLevel(read ? TransactionDefinition.ISOLATION_REPEATABLE_READ : TransactionDefinition.ISOLATION_READ_COMMITTED);
-        template.setTimeout(30);
+        // 导入仍有固定事务超时；大导出不能受该导入时限截断。
+        if (!read) template.setTimeout(30);
         return template;
     }
     private <T> T readTransaction(Supplier<T> action) { return transaction(true).execute(status -> action.get()); }

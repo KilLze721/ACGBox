@@ -4,12 +4,23 @@ import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
 /** 动画、书籍分组导入导出，调用方传入已认证账号，不公开数据库和缓存细节。 */
 public interface DataTransferService {
     /** 已完整生成且通过大小检查的下载文件。 */
     record Download(String filename, byte[] bytes) { }
+    /** 已完整生成的磁盘导出文件，由下载调用方在传输结束后清理。 */
+    record ExportDownload(String filename, Path path) implements AutoCloseable {
+        @Override
+        public void close() throws IOException {
+            Files.deleteIfExists(path);
+        }
+    }
     Download template(String type, String requested);
-    Download export(String type, JsonNode request);
+    ExportDownload export(String type, JsonNode request);
     ObjectNode preview(String type, String requested, long owner, MultipartFile file);
     ObjectNode commit(String type, JsonNode request, long owner);
     ObjectNode batch(String type, String requested, String token, long owner, boolean cancel);
